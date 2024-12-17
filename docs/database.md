@@ -25,11 +25,13 @@
 | ------ | ---- | ---- |
 | id | int | 主键 |
 | task_id | varchar(255) | 任务id |
+| worker_id | int | worker_id
 | worker_name | varchar(255) | 执行任务的worker |
 | start_time | datetime | 开始时间 |
 | end_time | datetime | 结束时间 |
 | task_status | int | 任务状态: 0:created, 1:running, 2:completed, 3:failed |
-| progress | int | 任务进度 |
+| progress | float | 任务进度 |
+| video_id | int | 视频id | 
 | dest_path | varchar(255) | 转码后的视频路径 |
 | video_path | varchar(255) | 原始视频路径 |
 
