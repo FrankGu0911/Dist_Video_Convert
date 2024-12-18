@@ -164,7 +164,9 @@ worker_id (可选): worker ID过滤
         "dest_path": "string",   // 目标路径
         "worker_id": "int",      // 处理该任务的worker ID
         "progress": "float",     // 转码进度
-        "status": "int"          // 任务状态: 0:created, 1:running, 2:completed, 3:failed
+        "status": "int",         // 任务状态: 0:created, 1:running, 2:completed, 3:failed
+        "elapsed_time": "int",   // 已用时间（秒）
+        "remaining_time": "int"  // 预计剩余时间（秒）
     }]
 }
 ```
@@ -186,7 +188,9 @@ worker_id (可选): worker ID过滤
         "worker_id": "int",      // 处理该任务的worker ID
         "progress": "float",     // 转码进度
         "status": "int",         // 任务状态
-        "error_message": "string" // 错误信息(如果有)
+        "error_message": "string", // 错误信息(如果有)
+        "elapsed_time": "int",   // 已用时间（秒）
+        "remaining_time": "int"  // 预计剩余时间（秒）
     }
 }
 ```
@@ -200,7 +204,9 @@ worker_id (可选): worker ID过滤
     "worker_id": "int",          // worker ID
     "progress": "float",         // 转码进度(0-100)
     "status": "int",             // 任务状态: 0:created, 1:running, 2:completed, 3:failed
-    "error_message": "string"    // 错误信息(可选，仅在失败时需要)
+    "error_message": "string",   // 错误信息(可选，仅在失败时需要)
+    "elapsed_time": "int",       // 已用时间（秒）
+    "remaining_time": "int"      // 预计剩余时间（秒）
 }
 ```
 
@@ -231,3 +237,5 @@ worker_id (可选): worker ID过滤
 3. 任务进度更新建议按照1%的进度间隔进行上报
 4. 所有接口的响应都包含基础的code和message字段
 5. 任务失败时，需要在更新任务状态时提供详细的错误信息
+6. 时间相关字段（elapsed_time和remaining_time）单位均为秒
+7. 任务完成时remaining_time会被自动设置为0，失败时会被设置为null

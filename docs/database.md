@@ -18,6 +18,8 @@
 | updatetime | datetime | 更新时间 |
 | transcode_status | int | 转码状态: 0:not_transcode, 1:wait_transcode, 2:created, 3:running, 4:completed, 5:failed |
 | transcode_task_id | int | 转码任务id |
+| md5 | varchar(32) | 文件MD5值 |
+| exist | boolean | 文件是否存在 |
 
 ## 表2: 转码任务表 transcode_task
 
@@ -28,6 +30,8 @@
 | worker_id | int | worker_id
 | worker_name | varchar(255) | 执行任务的worker |
 | start_time | datetime | 开始时间 |
+| elapsed_time | int | 已用时间 |
+| remaining_time | int | 剩余时间 |
 | end_time | datetime | 结束时间 |
 | task_status | int | 任务状态: 0:created, 1:running, 2:completed, 3:failed |
 | progress | float | 任务进度 |

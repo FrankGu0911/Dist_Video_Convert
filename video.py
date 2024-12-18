@@ -3,9 +3,7 @@ import ffmpeg
 from tqdm import tqdm
 import logging
 import subprocess
-import sqlite3
 import re
-import psutil
 from datetime import datetime
 
 class Video:

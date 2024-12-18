@@ -35,6 +35,9 @@ class TranscodeTask(db.Model):
     video_id = db.Column(db.Integer, db.ForeignKey('video_info.id'))
     dest_path = db.Column(db.String(255), nullable=True)  # 允许为空，由客户端决定
     video_path = db.Column(db.String(255))
+    error_message = db.Column(db.String(1023), nullable=True)  # 错误信息字段
+    elapsed_time = db.Column(db.Integer, default=0)  # 已用时间（秒）
+    remaining_time = db.Column(db.Integer, nullable=True)  # 预计剩余时间（秒）
 
 class TranscodeWorker(db.Model):
     __tablename__ = 'transcode_worker'
