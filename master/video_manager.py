@@ -1,9 +1,10 @@
-import os
+import os,sys
 import logging
 from datetime import datetime
 import ffmpeg
 import hashlib
 from models import db, VideoInfo
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from video import Video
 
 # 配置日志
@@ -30,27 +31,28 @@ class VideoManager:
                 return os.path.relpath(absolute_path, scan_path)
         return absolute_path
 
-    def calculate_md5(self, file_path, block_size=8192):
-        """计算文件的MD5值"""
-        md5 = hashlib.md5()
-        with open(file_path, 'rb') as f:
-            while True:
-                data = f.read(block_size)
-                if not data:
-                    break
-                md5.update(data)
-        return md5.hexdigest()
-
     def check_file_changes(self, video_file, existing_video):
-        """检查文件是否被修改"""
+        """检查文件是否被修改
+        使用文件大小和修改时间来判断
+        """
         try:
-            current_md5 = self.calculate_md5(video_file)
-            if current_md5 != existing_video.md5:
+            file_stat = os.stat(video_file)
+            file_size = file_stat.st_size / (1024 * 1024)  # 转换为MB
+            file_mtime = datetime.fromtimestamp(file_stat.st_mtime)
+            
+            # 如果文件大小不同，肯定被修改了
+            if abs(file_size - existing_video.video_size) > 0.1:  # 允许0.1MB的误差
+                logger.info(f"文件大小已改变: {video_file}")
+                return True
+                
+            # 如果文件修改时间晚于记录的文件修改时间
+            if existing_video.file_mtime is None or file_mtime > existing_video.file_mtime:
                 logger.info(f"文件已被修改: {video_file}")
                 return True
+                
             return False
         except Exception as e:
-            logger.error(f"检查文件MD5时出错: {str(e)}")
+            logger.error(f"检查文件变化时出错: {str(e)}")
             return False
 
     def scan_videos(self):
@@ -78,6 +80,11 @@ class VideoManager:
 
                 for video_file in video_files:
                     try:
+                        # 获取文件状态
+                        file_stat = os.stat(video_file)
+                        file_size = file_stat.st_size / (1024 * 1024)  # 转换为MB
+                        file_mtime = datetime.fromtimestamp(file_stat.st_mtime)
+                        
                         # 检查文件是否已存在于数据库
                         relative_path = self.get_relative_path(video_file)
                         existing_video = VideoInfo.query.filter_by(video_path=relative_path).first()
@@ -92,13 +99,13 @@ class VideoManager:
                                 video_obj = Video(video_file)
                                 existing_video.codec = video_obj.video_codec
                                 existing_video.bitrate_k = int(video_obj.video_bitrate / 1000)
-                                existing_video.video_size = video_obj.video_size / (1024 * 1024)
+                                existing_video.video_size = file_size
                                 existing_video.fps = video_obj.video_fps
                                 existing_video.resolutionx = video_obj.video_resolution[0]
                                 existing_video.resolutiony = video_obj.video_resolution[1]
                                 existing_video.resolutionall = video_obj.video_resolution[0] * video_obj.video_resolution[1]
                                 existing_video.updatetime = datetime.utcnow()
-                                existing_video.md5 = self.calculate_md5(video_file)
+                                existing_video.file_mtime = file_mtime
                                 logger.info(f"更新视频信息: {relative_path}")
                             
                             continue
@@ -112,17 +119,25 @@ class VideoManager:
                             identi=video_obj.identi,
                             codec=video_obj.video_codec,
                             bitrate_k=int(video_obj.video_bitrate / 1000),
-                            video_size=video_obj.video_size / (1024 * 1024),  # 转换为MB
+                            video_size=file_size,
                             fps=video_obj.video_fps,
                             resolutionx=video_obj.video_resolution[0],
                             resolutiony=video_obj.video_resolution[1],
                             resolutionall=video_obj.video_resolution[0] * video_obj.video_resolution[1],
                             is_vr=1 if video_obj.is_vr else 0,
                             updatetime=datetime.utcnow(),
+                            file_mtime=file_mtime,
                             transcode_status=0,  # 初始状态：未转码
-                            md5=self.calculate_md5(video_file),
                             exist=True
                         )
+
+                        # 判断是否需要转码
+                        if video.should_transcode():
+                            video.transcode_status = 1  # 等待转码
+                            logger.info(f"视频需要转码: {relative_path}")
+                        else:
+                            video.transcode_status = 0  # 不需要转码
+                            logger.info(f"视频不需要转码: {relative_path}")
                         
                         db.session.add(video)
                         logger.info(f"添加新视频信息: {relative_path}")

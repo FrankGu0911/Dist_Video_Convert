@@ -12,7 +12,7 @@ class Config:
         if not os.path.exists(self.config_file):
             self._create_default_config()
         
-        self.config.read(self.config_file)
+        self.config.read(self.config_file, encoding='utf-8')
     
     def _create_default_config(self):
         """创建默认配置文件"""

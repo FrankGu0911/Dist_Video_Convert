@@ -178,11 +178,25 @@ def create_task():
         if not all([worker_id, worker_type is not None, support_vr is not None]):
             return jsonify({'code': 400, 'message': '参数不完整'}), 400
 
-        # 更新worker心跳
-        current_app.scheduler.get_worker_manager().update_worker_heartbeat(worker_id)
-
         # 查找待转码的视频
-        video = VideoInfo.query.filter_by(transcode_status=1).first()
+        query = VideoInfo.query.filter(
+            VideoInfo.transcode_status.in_([1, 5]),  # 等待转码或转码失败
+            VideoInfo.exist == True  # 文件必须存在
+        )
+
+        # 根据worker是否支持VR筛选视频
+        if support_vr:
+            # 支持VR的worker只处理VR视频
+            query = query.filter(VideoInfo.is_vr == 1)
+        else:
+            # 不支持VR的worker只处理非VR视频
+            query = query.filter(VideoInfo.is_vr == 0)
+
+        # 按照码率/分辨率比率降序排序
+        video = query.order_by(
+            (VideoInfo.bitrate_k / VideoInfo.resolutionall).desc()
+        ).first()
+
         if not video:
             return jsonify({'code': 404, 'message': '没有待转码的视频'}), 404
 
@@ -196,6 +210,10 @@ def create_task():
             video_path=video.video_path,
             dest_path=dest_path
         )
+
+        # 更新视频状态为已创建任务
+        video.transcode_status = 2  # created
+        video.transcode_task_id = task.id
 
         db.session.add(task)
         db.session.commit()
@@ -284,7 +302,7 @@ def update_task(task_id):
             return jsonify({'code': 400, 'message': '参数不完整'}), 400
 
         # 更新worker心跳
-        current_app.scheduler.get_worker_manager().update_worker_heartbeat(worker_id)
+        # current_app.scheduler.get_worker_manager().update_worker_heartbeat(worker_id)
 
         task = TranscodeTask.query.filter_by(task_id=task_id).first()
         if not task:
@@ -309,7 +327,7 @@ def update_task(task_id):
                 worker.current_task_id = None
         elif status == 3:  # failed
             task.end_time = datetime.utcnow()
-            task.remaining_time = None  # 失败时剩余时间为空
+            task.remaining_time = None  # 失��时剩余时间为空
             video = VideoInfo.query.get(task.video_id)
             if video:
                 video.transcode_status = 5  # failed

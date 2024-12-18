@@ -1,6 +1,7 @@
-Flask==2.3.3
-Flask-SQLAlchemy==3.1.1
-SQLAlchemy==2.0.21
-APScheduler==3.10.4
-ffmpeg-python==0.2.0 
+Flask
+Flask-SQLAlchemy
+SQLAlchemy
+APScheduler
+ffmpeg-python 
 tqdm
+requests
