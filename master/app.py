@@ -12,7 +12,7 @@ config = Config()
 
 # 配置数据库
 basedir = os.path.abspath(os.path.dirname(__file__))
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'master.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://DistVideoConvertDB:mPKKWmWkMEkdj6wZ@192.168.3.4:53306/DistVideoConvert?charset=utf8mb4'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # 初始化数据库

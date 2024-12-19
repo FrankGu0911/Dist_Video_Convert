@@ -5,3 +5,5 @@ APScheduler
 ffmpeg-python 
 tqdm
 requests
+PyMySQL
+cryptography
