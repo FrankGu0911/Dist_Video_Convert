@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 class VideoManager:
     def __init__(self, scan_paths):
         self.scan_paths = scan_paths
+        self.batch_size = 20  # 每100个文件提交一次
         if not os.path.exists('logs'):
             os.makedirs('logs')
 
@@ -65,6 +66,8 @@ class VideoManager:
             for video in all_videos:
                 video.exist = False  # 初始化所有记录为不存在
             
+            processed_count = 0  # 处理文件计数
+            
             # 扫描所有路径
             for scan_path in self.scan_paths:
                 logger.info(f"扫描目录: {scan_path}")
@@ -108,6 +111,7 @@ class VideoManager:
                                 existing_video.file_mtime = file_mtime
                                 logger.info(f"更新视频信息: {relative_path}")
                             
+                            processed_count += 1
                             continue
 
                         # 处理新文件
@@ -138,15 +142,20 @@ class VideoManager:
                         else:
                             video.transcode_status = 0  # 不需要转码
                             logger.info(f"视频不需要转码: {relative_path}")
-                        
+
                         db.session.add(video)
-                        logger.info(f"添加新视频信息: {relative_path}")
+                        processed_count += 1
+                        
+                        # 每处理batch_size个文件就提交一次
+                        if processed_count % self.batch_size == 0:
+                            logger.info(f"批量提交 {self.batch_size} 个文件的更改")
+                            db.session.commit()
                         
                     except Exception as e:
                         logger.error(f"处理视频时出错 {video_file}: {str(e)}")
                         continue
             
-            # 提交所有更改
+            # 提交剩余的更改
             db.session.commit()
             
             # 统计结果
@@ -158,4 +167,4 @@ class VideoManager:
                     
         except Exception as e:
             logger.error(f"扫描视频时出错: {str(e)}")
-            db.session.rollback() 
+            db.session.rollback()
