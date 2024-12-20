@@ -4,6 +4,18 @@ from routes import worker_bp, task_bp
 from scheduler import TaskScheduler
 from config import Config
 import os
+import sys
+import logging
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('logs/app.log', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)  # 使用stdout，它支持UTF-8
+    ]
+)
 
 app = Flask(__name__)
 

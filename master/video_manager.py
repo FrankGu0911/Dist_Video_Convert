@@ -12,8 +12,8 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('logs/video_manager.log'),
-        logging.StreamHandler()
+        logging.FileHandler('logs/video_manager.log', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)  # 使用stdout，它支持UTF-8
     ]
 )
 logger = logging.getLogger(__name__)
@@ -146,7 +146,7 @@ class VideoManager:
                             logger.info(f"视频需要转码: {relative_path}")
                         else:
                             video.transcode_status = 0  # 不需要转码
-                            logger.info(f"视频不需要转码: {relative_path}")
+                            logger.info(f"视频不需要��码: {relative_path}")
 
                         db.session.add(video)
                         processed_count += 1

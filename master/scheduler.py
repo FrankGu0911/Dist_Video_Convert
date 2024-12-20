@@ -5,14 +5,15 @@ from worker_manager import WorkerManager
 import logging
 import os
 from flask import current_app
+import sys
 
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('logs/scheduler.log'),
-        logging.StreamHandler()
+        logging.FileHandler('logs/scheduler.log', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
