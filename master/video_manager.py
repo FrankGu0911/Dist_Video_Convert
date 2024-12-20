@@ -146,7 +146,7 @@ class VideoManager:
                             logger.info(f"视频需要转码: {relative_path}")
                         else:
                             video.transcode_status = 0  # 不需要转码
-                            logger.info(f"视频不需要��码: {relative_path}")
+                            logger.info(f"视频不需要转码: {relative_path}")
 
                         db.session.add(video)
                         processed_count += 1

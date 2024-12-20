@@ -327,7 +327,7 @@ def update_task(task_id):
                 worker.current_task_id = None
         elif status == 3:  # failed
             task.end_time = datetime.utcnow()
-            task.remaining_time = None  # 失��时剩余时间为空
+            task.remaining_time = None  # 失败时剩余时间为空
             video = VideoInfo.query.get(task.video_id)
             if video:
                 video.transcode_status = 5  # failed
