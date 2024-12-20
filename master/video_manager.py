@@ -26,10 +26,15 @@ class VideoManager:
             os.makedirs('logs')
 
     def get_relative_path(self, absolute_path):
-        """获取相对于扫描路径的相对路径"""
+        """获取相对于扫描路径的相对路径，统一使用Windows格式的路径分隔符"""
         for scan_path in self.scan_paths:
             if absolute_path.startswith(scan_path):
-                return os.path.relpath(absolute_path, scan_path)
+                # 获取相对路径并统一转换为Windows格式
+                rel_path = os.path.relpath(absolute_path, scan_path)
+                # 将路径分隔符统一为Windows格式
+                rel_path = rel_path.replace('/', '\\')
+                # 确保路径以\开头
+                return '\\' + rel_path if not rel_path.startswith('\\') else rel_path
         return absolute_path
 
     def check_file_changes(self, video_file, existing_video):

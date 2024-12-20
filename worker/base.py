@@ -256,7 +256,21 @@ class BasicWorker:
                 if self.status == WorkerStatus.PENDING:
                     task = self.get_new_task()
                     if task:
-                        self.process_task(task)
+                        try:
+                            self.process_task(task)
+                        except FileNotFoundError as e:
+                            logging.error(str(e))
+                            self.update_task_status(
+                                task_id=task["task_id"],
+                                status=TaskStatus.FAILED,
+                                progress=0.0,
+                                error_message=str(e),
+                                elapsed_time=0,
+                                remaining_time=0
+                            )
+                            logging.error("由于文件访问错误，worker停止运行")
+                            self.stop_heartbeat()
+                            return False
                     elif self.num != -1:  # 如果有转码次数限制，且没有新任务，等待一段时间后重试
                         logging.info(f"没有新任务，已完成 {self.completed_num}/{self.num} 个转码任务")
                         time.sleep(5)

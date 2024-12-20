@@ -9,11 +9,12 @@ class TestWorker(BasicWorker):
         task_id = task["task_id"]
         video_path = task["video_path"]
         
-        # 构建完整的视频路径
-        full_video_path = os.path.join(self.prefix_path, video_path)
+        # 使用基类的方法构建完整路径（如果文件不存在会抛出FileNotFoundError）
+        full_video_path = self._get_full_video_path(video_path)
         
         logging.info(f"Processing task {task_id}")
-        logging.info(f"Video path: {full_video_path}")
+        logging.info(f"Original video path: {video_path}")
+        logging.info(f"Full video path: {full_video_path}")
         logging.info(f"Save path: {self.save_path}")
         logging.info(f"Worker config:")
         logging.info(f"  - Type: {self.worker_type.name}")

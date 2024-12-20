@@ -19,16 +19,16 @@ if __name__ == "__main__":
     worker = TestWorker(
         worker_name="test_worker",
         worker_type=WorkerType.CPU,
-        master_url="http://localhost:5000",  # 修改为正确的端口
-        prefix_path=r"C:\Users\adsfv\Desktop\frank\Dist_Video_Convert\test_media",  # 修改为实际的视频路径
+        master_url="http://localhost:5000",
+        prefix_path="",  # 不设置前缀，让Worker自动处理
         save_path="!replace",  # 替换原视频
         support_vr=True,
-        crf=20,  # 可选
-        preset="slow",  # 可选
-        rate=30,  # 可选
-        numa_param="-,-,+,-",  # 可选
-        remove_original=False,  # 可选
-        num=1   # 可选
+        crf=20,
+        preset="slow",
+        rate=30,
+        numa_param="-,-,+,-",
+        remove_original=False,
+        num=1
     )
     
     # 运行worker
