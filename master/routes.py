@@ -1,10 +1,13 @@
 from flask import Blueprint, request, jsonify
 from models import db, VideoInfo, TranscodeTask, TranscodeWorker, TranscodeLog
 from datetime import datetime, timedelta
+from sqlalchemy import desc, asc
 import uuid
 
 worker_bp = Blueprint('worker', __name__)
 task_bp = Blueprint('task', __name__)
+video_bp = Blueprint('video', __name__)
+log_bp = Blueprint('log', __name__)
 
 # Worker 相关路由
 @worker_bp.route('', methods=['POST'])
@@ -25,12 +28,25 @@ def create_worker():
             worker.worker_type = worker_type
             worker.support_vr = support_vr
             worker.last_heartbeat = datetime.utcnow()
+            # 清除可��在的旧任务
+            if worker.current_task_id:
+                task = TranscodeTask.query.get(worker.current_task_id)
+                if task and task.task_status == 1:  # 如果有运行中的任务
+                    task.task_status = 3  # failed
+                    task.end_time = datetime.utcnow()
+                    task.error_message = "Worker重新注册，任务终止"
+                    # 更新视频状态
+                    video = VideoInfo.query.get(task.video_id)
+                    if video:
+                        video.transcode_status = 5  # failed
+                        video.transcode_task_id = None
+            worker.current_task_id = None
         else:
             worker = TranscodeWorker(
                 worker_name=worker_name,
                 worker_type=worker_type,
                 support_vr=support_vr,
-                worker_status=1,
+                worker_status=1,  # 注册时就设置为在线
                 last_heartbeat=datetime.utcnow()
             )
             db.session.add(worker)
@@ -178,6 +194,11 @@ def create_task():
         if not all([worker_id, worker_type is not None, support_vr is not None]):
             return jsonify({'code': 400, 'message': '参数不完整'}), 400
 
+        # 获取worker信息
+        worker = TranscodeWorker.query.get(worker_id)
+        if not worker:
+            return jsonify({'code': 404, 'message': 'Worker不存在'}), 404
+
         # 查找待转码的视频
         query = VideoInfo.query.filter(
             VideoInfo.transcode_status.in_([1, 5]),  # 等待转码或转码失败
@@ -186,10 +207,8 @@ def create_task():
 
         # 根据worker是否支持VR筛选视频
         if support_vr:
-            # 支持VR的worker只处理VR视频
             query = query.filter(VideoInfo.is_vr == 1)
         else:
-            # 不支持VR的worker只处理非VR视频
             query = query.filter(VideoInfo.is_vr == 0)
 
         # 按照码率/分辨率比率降序排序
@@ -205,15 +224,21 @@ def create_task():
         task = TranscodeTask(
             task_id=task_id,
             worker_id=worker_id,
+            worker_name=worker.worker_name,  # 从worker对象获取worker_name
             start_time=datetime.utcnow(),
             video_id=video.id,
             video_path=video.video_path,
-            dest_path=dest_path
+            dest_path=dest_path,
+            task_status=1  # 设置为运行状态
         )
 
         # 更新视频状态为已创建任务
         video.transcode_status = 2  # created
         video.transcode_task_id = task.id
+
+        # 更新worker状态和当前任务
+        worker.current_task_id = task.id
+        worker.worker_status = 2  # running
 
         db.session.add(task)
         db.session.commit()
@@ -233,17 +258,35 @@ def create_task():
 @task_bp.route('', methods=['GET'])
 def list_tasks():
     try:
-        status = request.args.get('status', type=int)
-        worker_id = request.args.get('worker_id', type=int)
-
+        # 分页参数
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        
+        # 获取查询参数
+        status = request.args.getlist('status[]', type=int)
+        sort_by = request.args.get('sort_by', 'start_time')
+        order = request.args.get('order', 'desc')
+        
+        # 构建查询
         query = TranscodeTask.query
-        if status is not None:
-            query = query.filter_by(task_status=status)
-        if worker_id is not None:
-            query = query.filter_by(worker_id=worker_id)
-
-        tasks = query.all()
-        task_list = [{
+        
+        # 应用过滤条件
+        if status:
+            query = query.filter(TranscodeTask.task_status.in_(status))
+            
+        # 应用排序
+        sort_column = getattr(TranscodeTask, sort_by, TranscodeTask.start_time)
+        if order == 'desc':
+            query = query.order_by(desc(sort_column))
+        else:
+            query = query.order_by(asc(sort_column))
+            
+        # 执行分页查询
+        pagination = query.paginate(page=page, per_page=per_page)
+        tasks = pagination.items
+        
+        # 构建响应数据
+        tasks_list = [{
             'task_id': task.task_id,
             'video_path': task.video_path,
             'dest_path': task.dest_path,
@@ -256,11 +299,24 @@ def list_tasks():
 
         return jsonify({
             'code': 200,
-            'message': '获取成功',
-            'data': task_list
+            'message': 'success',
+            'data': {
+                'tasks': tasks_list,
+                'pagination': {
+                    'total': pagination.total,
+                    'pages': pagination.pages,
+                    'current_page': pagination.page,
+                    'per_page': pagination.per_page,
+                    'has_next': pagination.has_next,
+                    'has_prev': pagination.has_prev
+                }
+            }
         })
     except Exception as e:
-        return jsonify({'code': 500, 'message': str(e)}), 500
+        return jsonify({
+            'code': 500,
+            'message': f'获取任务列表失败: {str(e)}'
+        }), 500
 
 @task_bp.route('/<string:task_id>', methods=['GET'])
 def get_task(task_id):
@@ -349,3 +405,198 @@ def update_task(task_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e)}), 500 
+
+@video_bp.route('', methods=['GET'])
+def list_videos():
+    try:
+        # 分页参数
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)  # 默认每页20条
+        
+        # 获取查询参数
+        transcode_status = request.args.getlist('transcode_status[]', type=int)
+        is_vr = request.args.get('is_vr', type=int)
+        codec = request.args.getlist('codec[]')
+        min_bitrate = request.args.get('min_bitrate', type=int)  # 最小码率(Kbps)
+        max_bitrate = request.args.get('max_bitrate', type=int)  # 最大码率(Kbps)
+        min_size = request.args.get('min_size', type=float)      # 最小文件大小(MB)
+        max_size = request.args.get('max_size', type=float)      # 最大文件大小(MB)
+        
+        # 排序参数
+        sort_by = request.args.get('sort_by', 'updatetime')  # 默认按更新时间排序
+        order = request.args.get('order', 'desc')            # 默认降序
+        
+        query = VideoInfo.query.filter(VideoInfo.exist == True)
+        
+        # 应用过滤条件
+        if transcode_status:
+            query = query.filter(VideoInfo.transcode_status.in_(transcode_status))
+        if is_vr is not None:
+            query = query.filter(VideoInfo.is_vr == is_vr)
+        if codec:
+            query = query.filter(VideoInfo.codec.in_(codec))
+        if min_bitrate is not None:
+            query = query.filter(VideoInfo.bitrate_k >= min_bitrate)
+        if max_bitrate is not None:
+            query = query.filter(VideoInfo.bitrate_k <= max_bitrate)
+        if min_size is not None:
+            query = query.filter(VideoInfo.video_size >= min_size)
+        if max_size is not None:
+            query = query.filter(VideoInfo.video_size <= max_size)
+            
+        # 应用排序
+        sort_column = getattr(VideoInfo, sort_by, VideoInfo.updatetime)
+        if order == 'desc':
+            query = query.order_by(sort_column.desc())
+        else:
+            query = query.order_by(sort_column.asc())
+            
+        # 执行分页查询
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+        videos = pagination.items
+        
+        video_list = [{
+            'id': video.id,
+            'video_path': video.video_path,
+            'codec': video.codec,
+            'bitrate_k': video.bitrate_k,
+            'video_size': video.video_size,
+            'fps': video.fps,
+            'resolution': {
+                'width': video.resolutionx,
+                'height': video.resolutiony
+            },
+            'is_vr': video.is_vr,
+            'transcode_status': video.transcode_status,
+            'transcode_task_id': video.transcode_task_id,
+            'update_time': video.updatetime.isoformat() if video.updatetime else None
+        } for video in videos]
+
+        return jsonify({
+            'code': 200,
+            'message': '获取成功',
+            'data': {
+                'videos': video_list,
+                'pagination': {
+                    'total': pagination.total,        # 总记录数
+                    'pages': pagination.pages,        # 总页数
+                    'current_page': pagination.page,  # 当前页
+                    'per_page': pagination.per_page,  # 每页记录数
+                    'has_next': pagination.has_next,  # 是否有下一页
+                    'has_prev': pagination.has_prev   # 是否有上一页
+                }
+            }
+        })
+    except Exception as e:
+        return jsonify({'code': 500, 'message': str(e)}), 500
+
+@video_bp.route('/<int:video_id>', methods=['GET'])
+def get_video(video_id):
+    try:
+        video = VideoInfo.query.get(video_id)
+        if not video or not video.exist:
+            return jsonify({'code': 404, 'message': '视频不存在'}), 404
+
+        return jsonify({
+            'code': 200,
+            'message': '获取成功',
+            'data': {
+                'id': video.id,
+                'video_path': video.video_path,
+                'codec': video.codec,
+                'bitrate_k': video.bitrate_k,
+                'video_size': video.video_size,
+                'fps': video.fps,
+                'resolution': {
+                    'width': video.resolutionx,
+                    'height': video.resolutiony
+                },
+                'is_vr': video.is_vr,
+                'transcode_status': video.transcode_status,
+                'transcode_task_id': video.transcode_task_id,
+                'update_time': video.updatetime.isoformat() if video.updatetime else None
+            }
+        })
+    except Exception as e:
+        return jsonify({'code': 500, 'message': str(e)}), 500
+
+# 添加日志相关路由
+@log_bp.route('', methods=['GET'])
+def get_logs():
+    try:
+        # 获取查询参数
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        log_level = request.args.getlist('log_level[]')  # 修改为 getlist
+        start_time = request.args.get('start_time')
+        end_time = request.args.get('end_time')
+        sort_by = request.args.get('sort_by', 'log_time')
+        order = request.args.get('order', 'desc')
+
+        # 构建查询
+        query = TranscodeLog.query
+
+        # 应用筛选
+        if log_level:
+            # 转换为整数列表
+            level_list = [int(l) for l in log_level if l.isdigit()]
+            if level_list:  # 只有在列表非空时才应用过滤
+                query = query.filter(TranscodeLog.log_level.in_(level_list))
+        
+        if start_time:
+            start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            query = query.filter(TranscodeLog.log_time >= start_dt)
+        
+        if end_time:
+            end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+            query = query.filter(TranscodeLog.log_time <= end_dt)
+
+        # 应用排序
+        sort_column = getattr(TranscodeLog, sort_by, TranscodeLog.log_time)
+        if order == 'desc':
+            query = query.order_by(desc(sort_column))
+        else:
+            query = query.order_by(asc(sort_column))
+
+        # 执行分页查询
+        try:
+            pagination = query.paginate(page=page, per_page=per_page)
+            logs = pagination.items
+        except Exception as e:
+            print(f"Pagination error: {e}")
+            return jsonify({
+                'code': 400,
+                'message': '分页参数错误'
+            }), 400
+
+        # 构建响应数据
+        logs_list = [{
+            'id': log.id,
+            'task_id': log.task_id,
+            'log_time': log.log_time.isoformat(),
+            'log_level': log.log_level,
+            'log_message': log.log_message
+        } for log in logs]
+
+        return jsonify({
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'logs': logs_list,
+                'pagination': {
+                    'total': pagination.total,
+                    'pages': pagination.pages,
+                    'current_page': pagination.page,
+                    'per_page': pagination.per_page,
+                    'has_next': pagination.has_next,
+                    'has_prev': pagination.has_prev
+                }
+            }
+        })
+
+    except Exception as e:
+        print(f"Error in get_logs: {str(e)}")  # 添加调试日志
+        return jsonify({
+            'code': 500,
+            'message': f'获取日志失败: {str(e)}'
+        }), 500

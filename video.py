@@ -225,6 +225,64 @@ class Video:
         if remove_original:
             os.remove(self.video_path)
 
+    def convert_to_hevc_nvenc(self, qmin=23, preset="p5", rate=30, output_folder=None, remove_original=False, progress_callback=None):
+        """使用NVIDIA NVENC将视频转换为HEVC/H.265格式
+        
+        Args:
+            qmin (int): 最小量化参数，控制视频质量，范围1-51，默认23
+            preset (str): NVENC预设，支持p1-p7或通用预设(veryslow,slower,slow,medium,fast,faster,veryfast)，默认p5
+                         p1最快质量最低，p7最慢质量最好
+            rate (int): 输出帧率，默认30
+            output_folder (str): 输出文件夹路径，默认为None（使用源文件夹）
+            remove_original (bool): 是否删除原始文件，默认False
+            progress_callback (callable): 进度回调函数，默认None
+        """
+        # 预设值映射字典 (p1最快质量最低，p7最慢质量最好)
+        preset_mapping = {
+            'veryfast': 'p1',
+            'faster': 'p2',
+            'fast': 'p3',
+            'medium': 'p4',
+            'slow': 'p5',
+            'slower': 'p6',
+            'veryslow': 'p7'
+        }
+        
+        # 如果输入的是通用预设，转换为NVENC预设
+        if preset.lower() in preset_mapping:
+            preset = preset_mapping[preset.lower()]
+        # 如果是p1-p7格式，统一转为小写
+        elif preset.lower() in ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']:
+            preset = preset.lower()
+        else:
+            logging.warning(f"未知的预设值: {preset}，使用默认值p5")
+            preset = 'p5'
+            
+        output_path = self.check_output_path(output_folder)
+        logging.info("Converting %s to h265 with NVENC (qmin=%s, preset=%s)" % (self.video_name, qmin, preset))
+        logging.info("Output file: %s" % output_path)
+        
+        # 处理帧率参数
+        rate_param = ''
+        if rate:
+            if isinstance(rate, int):
+                rate = str(rate)
+            assert rate.isdigit()
+            rate_param = '-r %s' % rate
+            
+        try:
+            cmd = 'ffmpeg -y -i "%s" -c:v hevc_nvenc %s -preset %s -rc vbr -qmin %d -qmax %d -rc-lookahead 32 -b_ref_mode each -spatial_aq 1 -aq-strength 8 -profile:v main -level 5.2 -c:a copy "%s"' % (
+                self.video_path, rate_param, preset, qmin, qmin, output_path
+            )
+            logging.info(cmd)
+            self.convert_video_with_progress(cmd, progress_callback)
+        except Exception as e:
+            print(e)
+            raise e
+            
+        if remove_original:
+            os.remove(self.video_path)
+
     def convert_to_h265(self, crf=22, preset="medium", rate="", output_folder=None, remove_original=False, numa_param:str=None, progress_callback=None):
         output_path = self.check_output_path(output_folder)
         logging.info("Converting %s to h265 with crf %s" % (self.video_name, crf))

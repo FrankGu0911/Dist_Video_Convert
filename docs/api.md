@@ -144,13 +144,18 @@
 }
 ```
 
-### 获取任务列表
+### 查询任务列表
 - **接口**: `/api/v1/tasks`
 - **方法**: GET
-- **请求参数**: 
-```
-status (可选): 任务状态过滤
-worker_id (可选): worker ID过滤
+- **请求参数**:
+```json
+{
+    "page": "int",                // 页码，默认1
+    "per_page": "int",           // 每页记录数，默认20
+    "status[]": "int[]",         // 任务状态数组
+    "sort_by": "string",         // 排序字段，可选值: start_time, progress, status
+    "order": "string"            // 排序方式: asc, desc
+}
 ```
 
 - **响应**:
@@ -215,6 +220,101 @@ worker_id (可选): worker ID过滤
 {
     "code": "int",               // 状态码
     "message": "string"          // 响应信息
+}
+```
+
+## 3. 视频资源
+
+### 查询视频列表
+- **接口**: `/api/v1/videos`
+- **方法**: GET
+- **请求参数**:
+```json
+{
+    "page": "int",                    // 页码，默认1
+    "per_page": "int",               // 每页记录数，默认20
+    "transcode_status[]": "int[]",   // 转码状态数组
+    "is_vr": "int",                  // 是否VR: 0:no, 1:yes
+    "codec[]": "string[]",           // 编码格式数组
+    "sort_by": "string",             // 排序字段，可选值: video_path, codec, bitrate_k, resolutionall, video_size, transcode_status, updatetime
+    "order": "string"                // 排序方式: asc, desc
+}
+```
+
+- **响应**:
+```json
+{
+    "code": "int",               // 状态码
+    "message": "string",         // 响应信息
+    "data": {
+        "videos": [{
+            "id": "int",            // 视频ID
+            "video_path": "string", // 视频路径
+            "codec": "string",      // 视频编码
+            "bitrate_k": "int",     // 码率(Kbps)
+            "video_size": "float",  // 文件大小(MB)
+            "fps": "float",         // 帧率
+            "resolution": {         // 分辨率
+                "width": "int",     // 宽度
+                "height": "int"     // 高度
+            },
+            "is_vr": "int",        // 是否VR视频
+            "transcode_status": "int", // 转码状态
+            "transcode_task_id": "int", // 转码任务ID
+            "update_time": "string"    // 更新时间
+        }],
+        "pagination": {
+            "total": "int",        // 总记录数
+            "pages": "int",        // 总页数
+            "current_page": "int", // 当前页
+            "per_page": "int",     // 每页记录数
+            "has_next": "bool",    // 是否有下一页
+            "has_prev": "bool"     // 是否有上一页
+        }
+    }
+}
+```
+
+## 4. 日志资源
+
+### 查询日志列表
+- **接口**: `/api/v1/logs`
+- **方法**: GET
+- **请求参数**: 
+```json
+{
+    "page": "int",                // 页码，默认1
+    "per_page": "int",           // 每页记录数，默认20
+    "log_level[]": "int[]",      // 日志级别数组
+    "start_time": "string",      // 开始时间 (ISO格式)
+    "end_time": "string",        // 结束时间 (ISO格式)
+    "sort_by": "string",         // 排序字段，可选值: id, log_time, log_level
+    "order": "string"            // 排序方式: asc, desc
+}
+```
+
+- **响应**:
+```json
+{
+    "code": "int",               // 状态码
+    "message": "string",         // 响应信息
+    "data": {
+        "logs": [{
+            "id": "int",            // 日志ID
+            "task_id": "int",       // 相关任务ID（如果有）
+            "log_time": "string",   // 日志时间
+            "log_level": "int",     // 日志级别
+            "log_message": "string" // 日志内容
+        }],
+        "pagination": {
+            "total": "int",        // 总记录数
+            "pages": "int",        // 总页数
+            "current_page": "int", // 当前页
+            "per_page": "int",     // 每页记录数
+            "has_next": "bool",    // 是否有下一页
+            "has_prev": "bool"     // 是否有上一页
+        }
+    }
 }
 ```
 

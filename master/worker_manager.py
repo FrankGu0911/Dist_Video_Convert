@@ -34,8 +34,8 @@ class WorkerManager:
                 # 如果worker有当前任务，更新任务的worker_name
                 if worker.current_task_id:
                     task = TranscodeTask.query.get(worker.current_task_id)
-                    if task and not task.worker_name:
-                        task.worker_name = worker.worker_name
+                    if task:
+                        task.worker_name = worker.worker_name  # 总是更新worker_name，不再检查是否为空
                 
                 worker.worker_status = 1  # 在线
                 db.session.commit()
@@ -66,9 +66,9 @@ class WorkerManager:
                 logger.info(f"Worker {worker.worker_name} (ID: {worker.id}) 已离线")
 
                 # 查找该worker的所有运行中的任务
-                running_tasks = TranscodeTask.query.filter_by(
-                    worker_id=worker.id,
-                    task_status=1  # running
+                running_tasks = TranscodeTask.query.filter(
+                    TranscodeTask.worker_id == worker.id,
+                    TranscodeTask.task_status == 1  # running
                 ).all()
 
                 for task in running_tasks:
@@ -82,6 +82,7 @@ class WorkerManager:
                     if video:
                         logger.info(f"更新视频 {video.id} 的转码状态为失败")
                         video.transcode_status = 5  # failed
+                        video.transcode_task_id = None  # 清除任务ID
                     else:
                         logger.warning(f"未找到任务 {task.task_id} 对应的视频记录")
 
