@@ -6,7 +6,7 @@ import hashlib
 from models import db, VideoInfo
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from video import Video
-
+os.makedirs('logs', exist_ok=True)
 # 配置日志
 logging.basicConfig(
     level=logging.INFO,
@@ -26,34 +26,43 @@ class VideoManager:
             os.makedirs('logs')
 
     def get_relative_path(self, absolute_path):
-        """获取相对于扫描路径的相对路径，统一使用Windows格式的路径分隔符"""
+        """获取从挂载点后第一个目录开始的相对路径，统一使用Windows格式的路径分隔符"""
+        # 确保路径是UTF-8编码的字符串
+        if isinstance(absolute_path, bytes):
+            absolute_path = absolute_path.decode('utf-8')
+        
+        # 将路径分隔符统一为Windows格式
+        absolute_path = absolute_path.replace('/', '\\')
+        
+        # 处理网络共享路径
+        if absolute_path.startswith('\\\\'):
+            # 查找第三个反斜杠的位置（跳过服务器名）
+            parts = absolute_path.split('\\')
+            if len(parts) > 3:
+                # 从第三个部分开始截取（即服务器名后的第一个目录）
+                rel_path = '\\'.join(parts[3:])
+                return rel_path
+        
+        # 如果不是网络共享路径，使用原来的逻辑
         for scan_path in self.scan_paths:
             if absolute_path.startswith(scan_path):
-                # 获取相对路径并统一转换为Windows格式
                 rel_path = os.path.relpath(absolute_path, scan_path)
-                # 将路径分隔符统一为Windows格式
                 rel_path = rel_path.replace('/', '\\')
-                # 确保路径以\开头
                 return '\\' + rel_path if not rel_path.startswith('\\') else rel_path
+                
         return absolute_path
 
     def check_file_changes(self, video_file, existing_video):
         """检查文件是否被修改
-        使用文件大小和修改时间来判断
+        仅使用文件大小来判断，因为远程挂载文件的修改时间可能不稳定
         """
         try:
             file_stat = os.stat(video_file)
             file_size = file_stat.st_size / (1024 * 1024)  # 转换为MB
-            file_mtime = datetime.fromtimestamp(file_stat.st_mtime)
             
-            # 如果文件大小不同，肯定被修改了
+            # 只使用文件大小来判断是否被修改
             if abs(file_size - existing_video.video_size) > 0.1:  # 允许0.1MB的误差
                 logger.info(f"文件大小已改变: {video_file}")
-                return True
-                
-            # 如果文件修改时间晚于记录的文件修改时间
-            if existing_video.file_mtime is None or file_mtime > existing_video.file_mtime:
-                logger.info(f"文件已被修改: {video_file}")
                 return True
                 
             return False
@@ -166,7 +175,7 @@ class VideoManager:
             # 统计结果
             deleted_count = VideoInfo.query.filter_by(exist=False).count()
             if deleted_count > 0:
-                logger.warning(f"发现 {deleted_count} 个文件已被删除")
+                logger.warning(f"发现 {deleted_count} 个文件已删除")
             
             logger.info("视频扫描完成")
                     

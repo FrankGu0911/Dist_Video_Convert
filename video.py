@@ -15,9 +15,51 @@ class Video:
         self.exclusion_vr_code = ['DVRT']
         self.video_info = self.get_video_info(video_path)
         self.video_codec = self.video_info['streams'][0]['codec_name']
-        self.video_bitrate = int(self.video_info['streams'][0]['bit_rate'])
+        
+        # 处理bit_rate不存在的情况，按优先级尝试不同来源
+        try:
+            # 1. 首先尝试从视频流中获取bit_rate
+            self.video_bitrate = int(self.video_info['streams'][0]['bit_rate'])
+        except (KeyError, TypeError):
+            try:
+                # 2. 尝试从视频流的tags中获取BPS
+                self.video_bitrate = int(self.video_info['streams'][0]['tags']['BPS'])
+            except (KeyError, TypeError):
+                try:
+                    # 3. 尝试从format中获取bit_rate
+                    self.video_bitrate = int(self.video_info['format']['bit_rate'])
+                except (KeyError, TypeError):
+                    try:
+                        # 4. 如果还是获取不到，使用文件大小和时长估算
+                        file_size = os.path.getsize(video_path)  # 字节
+                        duration = float(self.video_info['format']['duration'])  # 秒
+                        self.video_bitrate = int((file_size * 8) / duration)  # 比特/秒
+                    except (KeyError, TypeError, ZeroDivisionError):
+                        # 5. 如果还是无法计算，设置为0
+                        logging.warning(f"无法获取视频比特率，设置为0: {video_path}")
+                        self.video_bitrate = 0
+        
         self.video_resolution = (int(self.video_info['streams'][0]['width']), int(self.video_info['streams'][0]['height']))
-        self.video_duration = float(self.video_info['streams'][0]['duration'])
+        
+        # 处理duration不存在的情况，按优先级尝试不同来源
+        try:
+            # 1. 首先尝试从视频流中获取duration
+            self.video_duration = float(self.video_info['streams'][0]['duration'])
+        except (KeyError, TypeError):
+            try:
+                # 2. 尝试从视频流的tags中获取DURATION
+                duration_str = self.video_info['streams'][0]['tags']['DURATION']
+                # 处理类似 "02:43:56.569000000" 格式的时间
+                h, m, s = duration_str.split(':')
+                self.video_duration = float(h) * 3600 + float(m) * 60 + float(s)
+            except (KeyError, TypeError, ValueError):
+                try:
+                    # 3. 尝试从format中获取duration
+                    self.video_duration = float(self.video_info['format']['duration'])
+                except (KeyError, TypeError):
+                    logging.warning(f"无法获取视频时长，设置为0: {video_path}")
+                    self.video_duration = 0
+        
         num, den = map(int, self.video_info['streams'][0]['avg_frame_rate'].split('/'))
         self.video_fps = num / den
         self.video_size = os.path.getsize(video_path)
@@ -95,7 +137,7 @@ class Video:
         else:
             return int(time_str[0])*3600+int(time_str[1])*60+int(float(time_str[2]))
 
-    def convert_video_with_progress(self, cmd, progress_callback=None): #TODO: add numa
+    def convert_video_with_progress(self, cmd, progress_callback=None): 
         try:
             loggingfile_name = "log/ffmpeglog-%s-%s.txt" % (self.video_name_noext, time.strftime("%Y-%m-%d-%H-%M", time.localtime()))
             loggingfile = open(loggingfile_name, "w",encoding='utf-8')
@@ -165,6 +207,8 @@ class Video:
         output_path = self.check_output_path(output_folder)
         logging.info("Converting %s to h265 with global_quality %s" % (self.video_name, global_quality))
         logging.info("Output file: %s" % output_path)
+        if rate is None:
+            rate = ''
         if rate != "":
             # check rate num 
             if type(rate) == int:
@@ -304,10 +348,14 @@ class Video:
                     cd_num = pattern_cd_num[0].search(tmp_filename[1]).group()
                     cd_num = cd_num.upper()
                     cd_num = cd_num.replace(pattern_cd_num[1].upper(),'')
-                    assert len(cd_num) == 1
-                    if ord('A') <= ord(cd_num) <= ord('Z'):
-                        cd_num = ord(cd_num) - ord('A') + 1
-                    cd_num = 'CD'+str(cd_num)
+                    # 移除对cd_num长度的限制，允许多位数字
+                    if cd_num.isdigit():
+                        cd_num = 'CD' + cd_num
+                    elif len(cd_num) == 1 and ord('A') <= ord(cd_num) <= ord('Z'):
+                        cd_num = 'CD' + str(ord(cd_num) - ord('A') + 1)
+                    else:
+                        logging.warning("Invalid CD number format: %s" % cd_num)
+                        continue
                     break
             if cd_num == '':
                 logging.warning("File name not match: %s" % self.video_name)

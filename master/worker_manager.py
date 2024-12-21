@@ -30,6 +30,13 @@ class WorkerManager:
             worker = TranscodeWorker.query.get(worker_id)
             if worker:
                 worker.last_heartbeat = datetime.utcnow()
+                
+                # 如果worker有当前任务，更新任务的worker_name
+                if worker.current_task_id:
+                    task = TranscodeTask.query.get(worker.current_task_id)
+                    if task and not task.worker_name:
+                        task.worker_name = worker.worker_name
+                
                 worker.worker_status = 1  # 在线
                 db.session.commit()
                 logger.debug(f"更新worker心跳时间: {worker_id}")
@@ -56,25 +63,35 @@ class WorkerManager:
             for worker in workers:
                 offline_count += 1
                 worker.worker_status = 0  # 标记为离线
+                logger.info(f"Worker {worker.worker_name} (ID: {worker.id}) 已离线")
 
-                # 如果worker有正在执行的任务，将任务标记为失败
-                if worker.current_task_id:
-                    task = TranscodeTask.query.get(worker.current_task_id)
-                    if task and task.task_status == 1:  # running
-                        task.task_status = 3  # failed
-                        task.end_time = current_time
-                        task.error_message = "Worker离线，任务自动终止"
-                        
-                        # 更新视频状态
-                        video = VideoInfo.query.get(task.video_id)
-                        if video:
-                            video.transcode_status = 5  # failed
+                # 查找该worker的所有运行中的任务
+                running_tasks = TranscodeTask.query.filter_by(
+                    worker_id=worker.id,
+                    task_status=1  # running
+                ).all()
 
+                for task in running_tasks:
+                    logger.info(f"将离线worker的任务 {task.task_id} 标记为失败")
+                    task.task_status = 3  # failed
+                    task.end_time = current_time
+                    task.error_message = "Worker离线，任务自动终止"
+                    
+                    # 更新视频状态
+                    video = VideoInfo.query.get(task.video_id)
+                    if video:
+                        logger.info(f"更新视频 {video.id} 的转码状态为失败")
+                        video.transcode_status = 5  # failed
+                    else:
+                        logger.warning(f"未找到任务 {task.task_id} 对应的视频记录")
+
+                # 清除worker的当前任务
                 worker.current_task_id = None
 
             if offline_count > 0:
                 logger.warning(f"发现 {offline_count} 个worker离线")
                 db.session.commit()
+                logger.info("数据库更新完成")
 
         except Exception as e:
             logger.error(f"检查worker状态时出错: {str(e)}")

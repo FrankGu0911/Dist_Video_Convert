@@ -63,4 +63,4 @@ if __name__ == '__main__':
         db.create_all()
         # 在应用上下文中初始化调度器
         init_scheduler()
-    app.run(debug=False, host='0.0.0.0', port=5000) 
+    app.run(debug=False, host='0.0.0.0', port=5333) 

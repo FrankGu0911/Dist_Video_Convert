@@ -17,16 +17,16 @@ if __name__ == "__main__":
     
     # 创建测试worker实例
     worker = TestWorker(
-        worker_name="test_worker",
+        worker_name="test_worker_7950",
         worker_type=WorkerType.CPU,
-        master_url="http://localhost:5000",
-        prefix_path="",  # 不设置前缀，让Worker自动处理
-        save_path="!replace",  # 替换原视频
+        master_url="http://192.168.3.13:5333",
+        prefix_path="\\\\192.168.3.13",  
+        save_path="8t-640\\video_temp",  
         support_vr=True,
         crf=20,
         preset="slow",
         rate=30,
-        numa_param="-,-,+,-",
+        # numa_param="-,-,+,-",
         remove_original=False,
         num=1
     )

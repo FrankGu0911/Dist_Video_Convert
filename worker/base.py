@@ -4,6 +4,7 @@ import threading
 import logging
 from enum import Enum
 from typing import Optional
+import os
 
 class WorkerType(Enum):
     CPU = 0
@@ -42,7 +43,7 @@ class BasicWorker:
             worker_name: worker名称
             worker_type: worker类型 (0:cpu, 1:nvenc, 2:qsv, 3:vpu)
             master_url: master地址
-            prefix_path: 视频前缀路径
+            prefix_path: 视频��缀路径
             save_path: 视频保存路径 (!replace表示替换原视频)
             support_vr: 是否支持VR (cpu可支持，其他类型worker即使为True，也会被忽略)
             crf: 视频质量 (0-51)
@@ -51,7 +52,7 @@ class BasicWorker:
             preset: 视频质量预设
                 cpu+vr默认slow, cpu+no-vr默认medium
                 qsv+no-vr默认slow, nvenc+no-vr默认slow
-            rate: 视频帧率 (可选30,60，默认不改变)
+            rate: 视频帧率 (可选30,60，默认不改变，VR视频时强制为None)
             numa_param: numa参数 (只在cpu时有效，如4numa时使用node2: "-,-,+,-")
             remove_original: 是否删除原视频
             num: 转码次数限制 (-1表示不限制)
@@ -61,12 +62,25 @@ class BasicWorker:
         self.master_url = master_url.rstrip("/")
         self.prefix_path = prefix_path
         self.save_path = save_path
-        self.support_vr = support_vr
+        
+        # 如果不是CPU类型但设置了support_vr=True，发出警告并强制设为False
+        if worker_type != WorkerType.CPU and support_vr:
+            logging.warning(f"Worker类型为{worker_type.name}，不支持VR视频处理，已忽略support_vr=True设置")
+            self.support_vr = False
+        else:
+            self.support_vr = support_vr
         
         # 设置默认参数
         self.crf = self._get_default_crf() if crf is None else crf
         self.preset = self._get_default_preset() if preset is None else preset
-        self.rate = rate
+        
+        # 如果支持VR，强制rate为None并发出警告
+        if self.support_vr and rate is not None:
+            logging.warning("VR视频处理模式下不支持指定帧率，已忽略rate设置")
+            self.rate = None
+        else:
+            self.rate = rate
+        
         self.numa_param = numa_param if worker_type == WorkerType.CPU else None
         self.remove_original = remove_original
         self.num = num
@@ -282,3 +296,20 @@ class BasicWorker:
             logging.info("Worker stopping...")
         finally:
             self.stop_heartbeat()
+
+    def _get_full_video_path(self, video_path: str) -> str:
+        """获取完整的视频文件路径
+        
+        Args:
+            video_path: 相对视频路径
+            
+        Returns:
+            str: 完整的视频文件路径
+            
+        Raises:
+            FileNotFoundError: 如果文件不存在
+        """
+        full_path = os.path.join(self.prefix_path, video_path)
+        if not os.path.exists(full_path):
+            raise FileNotFoundError(f"视频文件不存在: {full_path}")
+        return full_path

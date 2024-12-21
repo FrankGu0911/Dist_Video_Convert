@@ -49,7 +49,7 @@ class VideoInfo(db.Model):
             else:
                 # VR视频或其他分辨率
                 if self.is_vr:
-                    br_limit = 24000
+                    return False
                 else:
                     br_limit = 4000
 

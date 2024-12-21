@@ -34,8 +34,8 @@ class TestWorker(BasicWorker):
             remaining_time=10
         )
         
-        # 等待1秒模拟处理
-        time.sleep(1)
+        # 等待10秒模拟处理
+        time.sleep(10)
         
         # 更新为失败状态
         self.update_task_status(
