@@ -1,4 +1,29 @@
 import axios from 'axios'
+import { io } from 'socket.io-client'
+
+// 创建WebSocket连接
+const socket = io('/', {
+  path: '/socket.io',
+  transports: ['websocket'],
+  upgrade: false,
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000
+})
+
+// WebSocket事件处理
+socket.on('connect', () => {
+  console.log('WebSocket connected')
+})
+
+socket.on('disconnect', () => {
+  console.log('WebSocket disconnected')
+})
+
+socket.on('task_update', (data) => {
+  // 触发自定义事件，让组件可以监听并处理更新
+  window.dispatchEvent(new CustomEvent('task_update', { detail: data }))
+})
 
 const api = axios.create({
   baseURL: '/api/v1',
@@ -117,6 +142,15 @@ const apiService = {
     }
 
     return api.get(`/logs?${queryParams.toString()}`)
+  },
+
+  // WebSocket相关方法
+  subscribeToTask(taskId) {
+    socket.emit('subscribe', { task_id: taskId })
+  },
+
+  unsubscribeFromTask(taskId) {
+    socket.emit('unsubscribe', { task_id: taskId })
   }
 }
 

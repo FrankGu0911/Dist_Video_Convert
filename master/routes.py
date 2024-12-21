@@ -3,11 +3,83 @@ from models import db, VideoInfo, TranscodeTask, TranscodeWorker, TranscodeLog
 from datetime import datetime, timedelta
 from sqlalchemy import desc, asc
 import uuid
+from flask_socketio import SocketIO, emit, join_room, leave_room
+import logging
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 worker_bp = Blueprint('worker', __name__)
 task_bp = Blueprint('task', __name__)
 video_bp = Blueprint('video', __name__)
 log_bp = Blueprint('log', __name__)
+
+# 创建SocketIO实例
+socketio = None
+
+# 初始化函数
+def init_app(app):
+    global socketio
+    if socketio is None:
+        socketio = SocketIO(
+            app,
+            cors_allowed_origins="*",
+            async_mode='eventlet',  # 使用eventlet作为异步模式
+            transport='websocket',  # 只使用WebSocket传输
+            ping_timeout=10,  # ping超时时间（秒）
+            ping_interval=5,   # ping间隔时间（秒）
+            logger=logger,     # 使用我们的日志记录器
+            engineio_logger=logger  # 同样用于engineio的日志
+        )
+        
+        # WebSocket事件处��
+        @socketio.on('connect')
+        def handle_connect():
+            logger.info('Client connected')
+
+        @socketio.on('disconnect')
+        def handle_disconnect():
+            logger.info('Client disconnected')
+
+        @socketio.on('subscribe')
+        def handle_subscribe(data):
+            task_id = data.get('task_id')
+            if task_id:
+                join_room(f'task_{task_id}')
+                logger.info(f'Client subscribed to task {task_id}')
+
+        @socketio.on('unsubscribe')
+        def handle_unsubscribe(data):
+            task_id = data.get('task_id')
+            if task_id:
+                leave_room(f'task_{task_id}')
+                logger.info(f'Client unsubscribed from task {task_id}')
+
+    # 添加请求日志中间件
+    @app.before_request
+    def log_request_info():
+        # 忽略对静态文件的请求日志
+        if not request.path.startswith('/api/'):
+            return
+        logger.info(f'Request: {request.method} {request.path} - Data: {request.get_json() if request.is_json else request.args}')
+
+    @app.after_request
+    def log_response_info(response):
+        # 只记录API请求的响应日志
+        if request.path.startswith('/api/'):
+            try:
+                response_data = response.get_data(as_text=True)
+                logger.info(f'Response: {response.status} - {response_data}')
+            except Exception as e:
+                logger.error(f'Error logging response: {str(e)}')
+        return response
+
+    app.register_blueprint(task_bp, url_prefix='/api/v1/tasks')
+    app.register_blueprint(worker_bp, url_prefix='/api/v1/workers')
+    app.register_blueprint(video_bp, url_prefix='/api/v1/videos')
+    app.register_blueprint(log_bp, url_prefix='/api/v1/logs')
+
+    return socketio
 
 # Worker 相关路由
 @worker_bp.route('', methods=['POST'])
@@ -357,9 +429,6 @@ def update_task(task_id):
         if not all([worker_id, progress is not None, status is not None]):
             return jsonify({'code': 400, 'message': '参数不完整'}), 400
 
-        # 更新worker心跳
-        # current_app.scheduler.get_worker_manager().update_worker_heartbeat(worker_id)
-
         task = TranscodeTask.query.filter_by(task_id=task_id).first()
         if not task:
             return jsonify({'code': 404, 'message': '任务不存在'}), 404
@@ -405,6 +474,21 @@ def update_task(task_id):
                     db.session.add(log)
 
         db.session.commit()
+
+        # 通过WebSocket发送任务态更新
+        task_data = {
+            'task_id': task.task_id,
+            'video_path': task.video_path,
+            'dest_path': task.dest_path,
+            'worker_id': task.worker_id,
+            'progress': task.progress,
+            'status': task.task_status,
+            'error_message': error_message if error_message else None,
+            'elapsed_time': task.elapsed_time,
+            'remaining_time': task.remaining_time
+        }
+        socketio.emit('task_update', task_data, room=f'task_{task_id}')
+
         return jsonify({'code': 200, 'message': '更新成功'})
     except Exception as e:
         db.session.rollback()

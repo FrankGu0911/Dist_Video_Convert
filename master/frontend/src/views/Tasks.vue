@@ -264,11 +264,38 @@ const getWorkerName = (workerId) => {
 const showTaskDetails = (task) => {
   selectedTask.value = task
   isDetailsOpen.value = true
+  apiService.subscribeToTask(task.task_id)
 }
 
 const closeDetails = () => {
+  if (selectedTask.value) {
+    apiService.unsubscribeFromTask(selectedTask.value.task_id)
+  }
   isDetailsOpen.value = false
   selectedTask.value = null
+}
+
+const handleTaskUpdate = (event) => {
+  const updatedTask = event.detail
+  // 更新列表中的任务
+  const taskIndex = appStore.tasks.findIndex(task => task.task_id === updatedTask.task_id)
+  if (taskIndex !== -1) {
+    const oldTask = appStore.tasks[taskIndex]
+    appStore.tasks[taskIndex] = { ...oldTask, ...updatedTask }
+
+    // 如果任务状态从其他状态变为运行中，订阅该任务
+    if (oldTask.status !== 1 && updatedTask.status === 1) {
+      apiService.subscribeToTask(updatedTask.task_id)
+    }
+    // 如果任务状态从运行中变为其他状态，取消订阅
+    else if (oldTask.status === 1 && updatedTask.status !== 1) {
+      apiService.unsubscribeFromTask(updatedTask.task_id)
+    }
+  }
+  // 更新选中的任务
+  if (selectedTask.value && selectedTask.value.task_id === updatedTask.task_id) {
+    selectedTask.value = { ...selectedTask.value, ...updatedTask }
+  }
 }
 
 const taskStatuses = [
@@ -330,6 +357,13 @@ const refreshTasks = async () => {
       if (tasksResponse.pagination) {
         pagination.value = tasksResponse.pagination
       }
+
+      // 订阅所有运行中的任务
+      tasksResponse.tasks.forEach(task => {
+        if (task.status === 1) { // 运行中的任务
+          apiService.subscribeToTask(task.task_id)
+        }
+      })
     }
 
     if (!appStore.workers.length) {
@@ -356,6 +390,19 @@ watch(
 onMounted(async () => {
   pagination.value.current_page = 1
   await refreshTasks()
+  window.addEventListener('task_update', handleTaskUpdate)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('task_update', handleTaskUpdate)
+  // 取消订阅所有运行中的任务
+  if (appStore.tasks) {
+    appStore.tasks.forEach(task => {
+      if (task.status === 1) {
+        apiService.unsubscribeFromTask(task.task_id)
+      }
+    })
+  }
 })
 
 const formatProgress = (progress) => {
