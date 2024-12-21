@@ -371,40 +371,44 @@ def update_task(task_id):
         if remaining_time is not None:
             task.remaining_time = remaining_time
 
-        if status == 2:  # completed
-            task.end_time = datetime.utcnow()
-            task.remaining_time = 0  # 完成时剩余时间为0
-            video = VideoInfo.query.get(task.video_id)
-            if video:
+        # 更新视频状态
+        video = VideoInfo.query.get(task.video_id)
+        if video:
+            if status == 1:  # running
+                video.transcode_status = 3  # transcoding
+                video.transcode_task_id = task.id
+            elif status == 2:  # completed
+                task.end_time = datetime.utcnow()
+                task.remaining_time = 0  # 完成时剩余时间为0
                 video.transcode_status = 4  # completed
-            worker = TranscodeWorker.query.get(worker_id)
-            if worker:
-                worker.worker_status = 1  # pending
-                worker.current_task_id = None
-        elif status == 3:  # failed
-            task.end_time = datetime.utcnow()
-            task.remaining_time = None  # 失败时剩余时间为空
-            video = VideoInfo.query.get(task.video_id)
-            if video:
+                video.transcode_task_id = None
+                worker = TranscodeWorker.query.get(worker_id)
+                if worker:
+                    worker.worker_status = 1  # pending
+                    worker.current_task_id = None
+            elif status == 3:  # failed
+                task.end_time = datetime.utcnow()
+                task.remaining_time = None  # 失败时剩余时间为空
                 video.transcode_status = 5  # failed
-            worker = TranscodeWorker.query.get(worker_id)
-            if worker:
-                worker.worker_status = 1  # pending
-                worker.current_task_id = None
-            # 记录错误日志
-            if error_message:
-                log = TranscodeLog(
-                    task_id=task.id,
-                    log_level=3,  # error
-                    log_message=error_message
-                )
-                db.session.add(log)
+                video.transcode_task_id = None
+                worker = TranscodeWorker.query.get(worker_id)
+                if worker:
+                    worker.worker_status = 1  # pending
+                    worker.current_task_id = None
+                # 记录错误日志
+                if error_message:
+                    log = TranscodeLog(
+                        task_id=task.id,
+                        log_level=3,  # error
+                        log_message=error_message
+                    )
+                    db.session.add(log)
 
         db.session.commit()
         return jsonify({'code': 200, 'message': '更新成功'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'code': 500, 'message': str(e)}), 500 
+        return jsonify({'code': 500, 'message': str(e)}), 500
 
 @video_bp.route('', methods=['GET'])
 def list_videos():

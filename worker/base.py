@@ -5,7 +5,8 @@ import logging
 from enum import Enum
 from typing import Optional
 import os
-from datetime import datetime, time
+from datetime import datetime
+from datetime import time as Time
 
 class WorkerType(Enum):
     CPU = 0
@@ -40,8 +41,8 @@ class BasicWorker:
                  numa_param: Optional[str] = None,
                  remove_original: bool = False,
                  num: int = -1,
-                 start_time: Optional[time] = None,
-                 end_time: Optional[time] = None):
+                 start_time: Optional[Time] = None,
+                 end_time: Optional[Time] = None):
         """初始化worker
         Args:
             worker_name: worker名称
