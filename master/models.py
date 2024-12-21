@@ -32,33 +32,26 @@ class VideoInfo(db.Model):
         # 如果是hevc或av1编码
         if self.codec in ['hevc', 'av1']:
             # 根据分辨率和帧率判断码率限制
-            if self.resolutionx == 1920:
-                if self.fps <= 30:
-                    br_limit = 3500
-                elif self.fps <= 60:
-                    br_limit = 5500
-                else:
-                    br_limit = 4000  # 默认限制
-            elif self.resolutionx == 3840:
-                if self.fps <= 30:
-                    br_limit = 12000
-                elif self.fps <= 60:
-                    br_limit = 20000
-                else:
-                    br_limit = 12000  # 默认限制
-            elif self.resolutionx == 2560:
-                if self.fps <= 30:
-                    br_limit = 5000
-                elif self.fps <= 60:
-                    br_limit = 8000
-                else:
-                    br_limit = 6000
-            else:
-                # VR视频或其他分辨率
-                if self.is_vr:
-                    return False
-                else:
-                    br_limit = 4000
+            # 根据总像素数和帧率计算目标码率
+            # 基准: 1080p@30fps约需3500kbps
+            # 计算公式: br_limit = (像素数比例 * 帧率比例 * 基准码率 * 0.8)
+            # 0.8是HEVC相对于H264的压缩效率提升
+            base_pixels = 1920 * 1080
+            base_fps = 30
+            base_bitrate = 3500
+
+            if self.is_vr:
+                return False
+            
+            # 计算像素数和帧率的比例
+            pixels_ratio = self.resolutionall / base_pixels
+            fps_ratio = self.fps / base_fps
+            
+            # 计算目标码率
+            br_limit = int(pixels_ratio * fps_ratio * base_bitrate)
+            
+            # 设置一些合理的上下限
+            br_limit = max(2000, min(br_limit, 25000))
 
             # 如果码率低于限制，不需要转码
             return self.bitrate_k >= br_limit
