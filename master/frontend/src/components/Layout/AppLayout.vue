@@ -19,6 +19,15 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
 import Navbar from './Navbar.vue'
 import Sidebar from './Sidebar.vue'
+import { useAppStore } from '../../stores/app'
+
+const appStore = useAppStore()
+
+onMounted(async () => {
+  // 初始化workers数据
+  await appStore.fetchWorkers()
+})
 </script> 

@@ -46,6 +46,13 @@ class VideoInfo(db.Model):
                     br_limit = 20000
                 else:
                     br_limit = 12000  # 默认限制
+            elif self.resolutionx == 2560:
+                if self.fps <= 30:
+                    br_limit = 5000
+                elif self.fps <= 60:
+                    br_limit = 8000
+                else:
+                    br_limit = 6000
             else:
                 # VR视频或其他分辨率
                 if self.is_vr:

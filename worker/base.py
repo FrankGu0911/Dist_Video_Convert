@@ -5,6 +5,7 @@ import logging
 from enum import Enum
 from typing import Optional
 import os
+from datetime import datetime, time
 
 class WorkerType(Enum):
     CPU = 0
@@ -31,20 +32,24 @@ class BasicWorker:
                  master_url: str,
                  prefix_path: str,
                  save_path: str,
+                 tmp_path: str = None,
                  support_vr: bool = False,
                  crf: Optional[int] = None,
                  preset: Optional[str] = None,
                  rate: Optional[int] = None,
                  numa_param: Optional[str] = None,
                  remove_original: bool = False,
-                 num: int = -1):
+                 num: int = -1,
+                 start_time: Optional[time] = None,
+                 end_time: Optional[time] = None):
         """初始化worker
         Args:
             worker_name: worker名称
             worker_type: worker类型 (0:cpu, 1:nvenc, 2:qsv, 3:vpu)
             master_url: master地址
-            prefix_path: 视频��缀路径
+            prefix_path: 视频前缀路径
             save_path: 视频保存路径 (!replace表示替换原视频)
+            tmp_path: 临时文件路径，默认为save_path下的tmp目录
             support_vr: 是否支持VR (cpu可支持，其他类型worker即使为True，也会被忽略)
             crf: 视频质量 (0-51)
                 cpu+vr默认20, cpu+no-vr默认22
@@ -56,12 +61,15 @@ class BasicWorker:
             numa_param: numa参数 (只在cpu时有效，如4numa时使用node2: "-,-,+,-")
             remove_original: 是否删除原视频
             num: 转码次数限制 (-1表示不限制)
+            start_time: 工作开始时间
+            end_time: 工作结束时间
         """
         self.name = worker_name
         self.worker_type = worker_type
         self.master_url = master_url.rstrip("/")
         self.prefix_path = prefix_path
         self.save_path = save_path
+        self.tmp_path = tmp_path if tmp_path else os.path.join(save_path, "tmp")
         
         # 如果不是CPU类型但设置了support_vr=True，发出警告并强制设为False
         if worker_type != WorkerType.CPU and support_vr:
@@ -85,6 +93,8 @@ class BasicWorker:
         self.remove_original = remove_original
         self.num = num
         self.completed_num = 0
+        self.start_time = start_time
+        self.end_time = end_time
 
         # 运行时状态
         self.worker_id = None
@@ -229,7 +239,7 @@ class BasicWorker:
             response.raise_for_status()
             data = response.json()
             if data["code"] == 200:
-                logging.info(f"任务状态已更新: {task_id} - {status.name}")
+                logging.debug(f"任务状态已更新: {task_id} - {status.name}")
                 if status in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
                     self.status = WorkerStatus.PENDING
                     self.current_task = None
@@ -266,6 +276,12 @@ class BasicWorker:
                     logging.info(f"已完成指定的{self.num}次转码任务，worker退出")
                     self.stop_heartbeat()
                     return True
+
+                # 检查是否在工作时间范围内
+                if not self._check_time():
+                    logging.debug("当前不在工作时间范围内")
+                    time.sleep(60)  # 不在工作时间时，每分钟检查一次
+                    continue
 
                 if self.status == WorkerStatus.PENDING:
                     task = self.get_new_task()
@@ -313,3 +329,16 @@ class BasicWorker:
         if not os.path.exists(full_path):
             raise FileNotFoundError(f"视频文件不存在: {full_path}")
         return full_path
+
+    def _check_time(self) -> bool:
+        """检查当前时间是否在工作时间范围内"""
+        if not self.start_time or not self.end_time:
+            return True
+
+        current_time = datetime.now().time()
+        
+        # 处理跨天的情况 (如22:00-06:00)
+        if self.start_time > self.end_time:
+            return current_time >= self.start_time or current_time <= self.end_time
+        else:
+            return self.start_time <= current_time <= self.end_time

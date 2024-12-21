@@ -28,7 +28,7 @@ def create_worker():
             worker.worker_type = worker_type
             worker.support_vr = support_vr
             worker.last_heartbeat = datetime.utcnow()
-            # 清除可��在的旧任务
+            # 清除可能存在的旧任务
             if worker.current_task_id:
                 task = TranscodeTask.query.get(worker.current_task_id)
                 if task and task.task_status == 1:  # 如果有运行中的任务

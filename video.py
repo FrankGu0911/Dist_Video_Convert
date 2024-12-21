@@ -139,7 +139,7 @@ class Video:
 
     def convert_video_with_progress(self, cmd, progress_callback=None): 
         try:
-            loggingfile_name = "log/ffmpeglog-%s-%s.txt" % (self.video_name_noext, time.strftime("%Y-%m-%d-%H-%M", time.localtime()))
+            loggingfile_name = "logs/ffmpeglog-%s-%s.txt" % (self.video_name_noext, time.strftime("%Y-%m-%d-%H-%M", time.localtime()))
             loggingfile = open(loggingfile_name, "w",encoding='utf-8')
             loggingfile = open(loggingfile_name, "a+",encoding='utf-8')
             loggingread = open(loggingfile_name, "r",encoding='utf-8')

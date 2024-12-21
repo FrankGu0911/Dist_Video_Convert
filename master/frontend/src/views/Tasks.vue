@@ -83,7 +83,7 @@
                           :style="{ width: `${task.progress}%` }"
                         ></div>
                       </div>
-                      <span class="flex-shrink-0 text-xs">{{ task.progress }}%</span>
+                      <span class="flex-shrink-0 text-xs">{{ formatProgress(task.progress) }}%</span>
                     </div>
                   </td>
                   <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
@@ -166,7 +166,7 @@
                               :style="{ width: `${selectedTask?.progress || 0}%` }"
                             ></div>
                           </div>
-                          <span class="text-xs mt-1 text-gray-500 dark:text-gray-400">{{ selectedTask?.progress || 0 }}%</span>
+                          <span class="text-xs mt-1 text-gray-500 dark:text-gray-400">{{ formatProgress(selectedTask?.progress || 0) }}%</span>
                         </div>
                       </div>
                       <div v-if="selectedTask?.error_message || selectedTask?.status === 3">
@@ -215,7 +215,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, onUnmounted } from 'vue'
 import dayjs from 'dayjs'
 import {
   Dialog,
@@ -324,15 +324,19 @@ const refreshTasks = async () => {
       params.order = filters.value.order
     }
 
-    const response = await apiService.getTasks(params)
-    if (response?.tasks) {
-      appStore.tasks = response.tasks
-      if (response.pagination) {
-        pagination.value = response.pagination
+    const tasksResponse = await apiService.getTasks(params)
+    if (tasksResponse?.tasks) {
+      appStore.tasks = tasksResponse.tasks
+      if (tasksResponse.pagination) {
+        pagination.value = tasksResponse.pagination
       }
     }
+
+    if (!appStore.workers.length) {
+      await appStore.fetchWorkers()
+    }
   } catch (error) {
-    console.error('Error fetching tasks:', error)
+    console.error('Error fetching data:', error)
   }
 }
 
@@ -346,17 +350,22 @@ watch(
   () => {
     pagination.value.current_page = 1
     refreshTasks()
-  },
-  { immediate: true }
+  }
 )
 
 onMounted(async () => {
+  pagination.value.current_page = 1
   await refreshTasks()
 })
+
+const formatProgress = (progress) => {
+  if (!progress) return '0'
+  if (Number.isInteger(progress)) return progress.toString()
+  return progress.toFixed(1)
+}
 </script>
 
 <style scoped>
-/* 添加一些样式来控制表格列宽和文本溢出 */
 .w-64 {
   width: 16rem;
 }
