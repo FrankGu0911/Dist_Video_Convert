@@ -32,7 +32,7 @@ def init_app(app):
             engineio_logger=logger  # 同样用于engineio的日志
         )
         
-        # WebSocket事件处��
+        # WebSocket事件处理
         @socketio.on('connect')
         def handle_connect():
             logger.info('Client connected')
@@ -283,9 +283,9 @@ def create_task():
         else:
             query = query.filter(VideoInfo.is_vr == 0)
 
-        # 按照码率/分辨率比率降序排序
+        # 按照码率降序排序
         video = query.order_by(
-            (VideoInfo.bitrate_k / VideoInfo.resolutionall).desc()
+            VideoInfo.bitrate_k.desc()
         ).first()
 
         if not video:
@@ -363,6 +363,7 @@ def list_tasks():
             'video_path': task.video_path,
             'dest_path': task.dest_path,
             'worker_id': task.worker_id,
+            'worker_name': task.worker_name,
             'progress': task.progress,
             'status': task.task_status,
             'elapsed_time': task.elapsed_time,
@@ -405,6 +406,7 @@ def get_task(task_id):
                 'video_path': task.video_path,
                 'dest_path': task.dest_path,
                 'worker_id': task.worker_id,
+                'worker_name': task.worker_name,
                 'progress': task.progress,
                 'status': task.task_status,
                 'error_message': task.error_message if hasattr(task, 'error_message') else None,
@@ -481,6 +483,7 @@ def update_task(task_id):
             'video_path': task.video_path,
             'dest_path': task.dest_path,
             'worker_id': task.worker_id,
+            'worker_name': task.worker_name,
             'progress': task.progress,
             'status': task.task_status,
             'error_message': error_message if error_message else None,

@@ -1,3 +1,6 @@
+import eventlet
+eventlet.monkey_patch()
+
 from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from models import db
@@ -7,10 +10,6 @@ from scheduler import TaskScheduler
 import os
 import sys
 import logging
-import eventlet
-
-# 使用eventlet替换标准库
-eventlet.monkey_patch()
 
 # 配置日志
 logging.basicConfig(
@@ -61,6 +60,9 @@ def create_app():
     # 初始化数据库
     db.init_app(app)
 
+    # 创建应用上下文
+    app.app_context().push()
+
     # 初始化路由和WebSocket
     socketio = init_app(app)
 
@@ -97,8 +99,7 @@ def create_app():
         return jsonify({'code': 500, 'message': '服务器内部错误'}), 500
 
     # 创建数据库表
-    with app.app_context():
-        db.create_all()
+    db.create_all()
 
     # 初始化调度器
     if not config.validate_paths():

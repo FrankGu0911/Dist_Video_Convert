@@ -256,9 +256,9 @@ const formatTime = (seconds) => {
   return `${minutes}分${remainingSeconds}秒`
 }
 
-const getWorkerName = (workerId) => {
-  const worker = appStore.workers.find(w => w.worker_id === workerId)
-  return worker ? worker.worker_name : '-'
+const getWorkerName = (worker_id) => {
+  const task = appStore.tasks.find(t => t.worker_id === worker_id)
+  return task?.worker_name || '-'
 }
 
 const showTaskDetails = (task) => {

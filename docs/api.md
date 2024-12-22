@@ -168,6 +168,7 @@
         "video_path": "string",  // 视频路径
         "dest_path": "string",   // 目标路径
         "worker_id": "int",      // 处理该任务的worker ID
+        "worker_name": "string", // 处理该任务的worker名称
         "progress": "float",     // 转码进度
         "status": "int",         // 任务状态: 0:created, 1:running, 2:completed, 3:failed
         "elapsed_time": "int",   // 已用时间（秒）
@@ -191,6 +192,7 @@
         "video_path": "string",  // 视频路径
         "dest_path": "string",   // 目标路径
         "worker_id": "int",      // 处理该任务的worker ID
+        "worker_name": "string", // 处理该任务的worker名称
         "progress": "float",     // 转码进度
         "status": "int",         // 任务状态
         "error_message": "string", // 错误信息(如果有)
