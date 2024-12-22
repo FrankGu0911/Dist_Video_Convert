@@ -20,8 +20,7 @@ class TaskScheduler:
         # 使用 cron trigger 设置每小时05分执行视频扫描
         self.scheduler.add_job(
             func=self.scan_videos,
-            trigger='interval',
-            seconds=60,
+            trigger=CronTrigger(minute=5),  # 每小时的第5分钟执行
             id='scan_videos',
             name='扫描视频文件',
             replace_existing=True
