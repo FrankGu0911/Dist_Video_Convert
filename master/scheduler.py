@@ -6,6 +6,7 @@ import os
 import logging
 from worker_manager import WorkerManager
 from video_manager import VideoManager
+from video import Video
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,8 @@ class TaskScheduler:
         # 使用 cron trigger 设置每小时05分执行视频扫描
         self.scheduler.add_job(
             func=self.scan_videos,
-            trigger=CronTrigger(minute=5),  # 每小时的第5分钟执行
+            trigger='interval',
+            seconds=60,
             id='scan_videos',
             name='扫描视频文件',
             replace_existing=True
@@ -72,88 +74,17 @@ class TaskScheduler:
                 logger.error(f"检查worker状态时出错: {str(e)}")
 
     def scan_videos(self):
+        """扫描视频文件的定时任务"""
         with self.app.app_context():
             try:
-                from models import db, VideoInfo, TranscodeLog
                 logger.info(f"开始扫描视频文件，路径: {self.scan_paths}")
-                
-                # 获取所有数据库中的视频记录
-                all_videos = VideoInfo.query.all()
-                for video in all_videos:
-                    video.exist = False  # 初始化所有记录为不存在
-                
-                processed_count = 0  # 处理文件计数
-                
-                # 扫描所有路径
-                for scan_path in self.scan_paths:
-                    logger.info(f"扫描目录: {scan_path}")
-                    # 获取所有视频文件
-                    video_files = []
-                    for root, _, files in os.walk(scan_path):
-                        for file in files:
-                            if file.endswith(('.mp4', '.mkv', '.avi', '.flv')):
-                                if '-trailer' in file.lower():
-                                    logger.debug(f"跳过预告片: {file}")
-                                    continue
-                                video_files.append(os.path.join(root, file))
-
-                    for video_file in video_files:
-                        try:
-                            # 获取文件状态
-                            file_stat = os.stat(video_file)
-                            file_size = file_stat.st_size / (1024 * 1024)  # 转换为MB
-                            
-                            # 获取相对路径
-                            relative_path = self.video_manager.get_relative_path(video_file)
-                            
-                            # 查找数据库中是否存在该视频记录
-                            existing_video = VideoInfo.query.filter_by(video_path=relative_path).first()
-                            
-                            if existing_video:
-                                # 视频已存在，检查是否需要更新
-                                existing_video.exist = True
-                                if self.video_manager.check_file_changes(video_file, existing_video):
-                                    # 文件已修改，更新记录
-                                    existing_video.video_size = file_size
-                                    existing_video.last_modified = datetime.utcnow()
-                                    existing_video.transcode_status = 0  # 重置转码状态
-                                    logger.info(f"更新视频记录: {relative_path}")
-                            else:
-                                # 新视频，创建记录
-                                new_video = VideoInfo(
-                                    video_path=relative_path,
-                                    video_size=file_size,
-                                    exist=True,
-                                    transcode_status=1 if VideoInfo.should_transcode() else 0,  # 判断是否需要转码
-                                    last_modified=datetime.utcnow()
-                                )
-                                db.session.add(new_video)
-                                logger.info(f"添加新视频: {relative_path}")
-                            
-                            processed_count += 1
-                            if processed_count % 20 == 0:  # 每处理20个文件提交一次
-                                db.session.commit()
-                                
-                        except Exception as e:
-                            logger.error(f"处理视频文件时出错 {video_file}: {str(e)}")
-                            continue
-                            
-                # 最后一次提交
-                db.session.commit()
-                
-                # 处理不存在的视频记录
-                non_exist_videos = VideoInfo.query.filter_by(exist=False).all()
-                for video in non_exist_videos:
-                    logger.info(f"删除不存在的视频记录: {video.video_path}")
-                    db.session.delete(video)
-                
-                db.session.commit()
-                logger.info("视频扫描完成")
-
+                # 使用 VideoManager 的 scan_videos 方法
+                self.video_manager.scan_videos()
             except Exception as e:
                 logger.error(f"扫描视频文件时出错: {str(e)}")
                 # 记录错误日志
                 try:
+                    from models import db, TranscodeLog
                     error_log = TranscodeLog(
                         log_level=3,  # ERROR
                         log_message=f"扫描视频文件时出错: {str(e)}"
