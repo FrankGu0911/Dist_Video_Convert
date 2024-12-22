@@ -39,6 +39,7 @@ class BasicWorker:
                  preset: Optional[str] = None,
                  rate: Optional[int] = None,
                  numa_param: Optional[str] = None,
+                 thread: Optional[int] = None,
                  remove_original: bool = False,
                  num: int = -1,
                  start_time: Optional[Time] = None,
@@ -60,6 +61,7 @@ class BasicWorker:
                 qsv+no-vr默认slow, nvenc+no-vr默认slow
             rate: 视频帧率 (可选30,60，默认不改变，VR视频时强制为None)
             numa_param: numa参数 (只在cpu时有效，如4numa时使用node2: "-,-,+,-")
+            thread: 线程数 (只在cpu时有效，默认None表示不指定，由ffmpeg自行决定)
             remove_original: 是否删除原视频
             num: 转码次数限制 (-1表示不限制)
             start_time: 工作开始时间
@@ -91,6 +93,15 @@ class BasicWorker:
             self.rate = rate
         
         self.numa_param = numa_param if worker_type == WorkerType.CPU else None
+        
+        # 设置线程数
+        if worker_type == WorkerType.CPU:
+            self.thread = thread
+        else:
+            if thread is not None:
+                logging.warning(f"Worker类型为{worker_type.name}，不支持设置线程数，已忽略thread设置")
+            self.thread = None
+        
         self.remove_original = remove_original
         self.num = num
         self.completed_num = 0
@@ -103,6 +114,60 @@ class BasicWorker:
         self.current_task = None
         self.heartbeat_thread = None
         self.running = False
+
+        # 设置当前进程为较高优先级，确保网络请求等关键操作不受影响
+        self._set_process_priority()
+
+    def _set_process_priority(self):
+        """设置进程优先级
+        
+        将当前进程（worker进程）设置为较高优先级
+        这样即使在转码时CPU负载很高，也能确保网络请求等关键操作正常执行
+        """
+        try:
+            import psutil
+            import os
+            
+            # 获取当前进程
+            process = psutil.Process(os.getpid())
+            
+            if os.name == 'nt':  # Windows系统
+                # Windows下设置为HIGH_PRIORITY_CLASS
+                import win32api
+                import win32process
+                import win32con
+                handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, False, os.getpid())
+                win32process.SetPriorityClass(handle, win32process.HIGH_PRIORITY_CLASS)
+                logging.info("已将worker进程优先级设置为HIGH_PRIORITY_CLASS")
+            else:  # Linux/Unix系统
+                # Linux下设置nice值为-10（范围-20到19，默认0，越小优先级越高）
+                process.nice(-10)
+                logging.info("已将worker进程nice值设置为-10")
+        except Exception as e:
+            logging.warning(f"设置进程优先级失败: {str(e)}")
+
+    def _set_ffmpeg_priority(self, process):
+        """设置ffmpeg进程的优先级
+        
+        将ffmpeg进程设置为较低优先级，避免影响worker进程的网络请求等操作
+        
+        Args:
+            process: ffmpeg进程对象
+        """
+        try:
+            if os.name == 'nt':  # Windows系统
+                import win32api
+                import win32process
+                import win32con
+                handle = win32api.OpenProcess(win32con.PROCESS_ALL_ACCESS, False, process.pid)
+                win32process.SetPriorityClass(handle, win32process.BELOW_NORMAL_PRIORITY_CLASS)
+                logging.info("已将ffmpeg进程优先级设置为BELOW_NORMAL_PRIORITY_CLASS")
+            else:  # Linux/Unix系统
+                # 设置nice值为10，优先级较低
+                psutil.Process(process.pid).nice(10)
+                logging.info("已将ffmpeg进程nice值设置为10")
+        except Exception as e:
+            logging.warning(f"设置ffmpeg进程优先级失败: {str(e)}")
 
     def _get_default_crf(self) -> int:
         """获取默认的crf值"""
@@ -119,6 +184,48 @@ class BasicWorker:
         elif self.worker_type in [WorkerType.QSV, WorkerType.NVENC]:
             return "slow"
         return "medium"  # 默认值
+
+    def _get_default_thread(self) -> int:
+        """获取默认的线程数
+        
+        如果使用了numa，则返回对应node的cpu数-1
+        否则返回系统总cpu数-1
+        """
+        import psutil
+        import re
+        
+        if self.numa_param:
+            # 解析numa参数，找到启用的node
+            nodes = self.numa_param.split(',')
+            enabled_nodes = [i for i, node in enumerate(nodes) if node.strip() == '+']
+            if not enabled_nodes:
+                logging.warning("未找到启用的NUMA节点，使用系统总CPU数-1")
+                return psutil.cpu_count() - 1
+                
+            try:
+                import subprocess
+                # 获取指定node的CPU数量
+                result = subprocess.run(['lscpu', '-p=cpu,node'], capture_output=True, text=True)
+                if result.returncode != 0:
+                    logging.warning("获取NUMA信息失败，使用系统总CPU数-1")
+                    return psutil.cpu_count() - 1
+                    
+                # 解析lscpu输出，统计指定node的CPU数量
+                cpu_count = 0
+                for line in result.stdout.splitlines():
+                    if line.startswith('#'):
+                        continue
+                    cpu, node = map(int, line.split(','))
+                    if node in enabled_nodes:
+                        cpu_count += 1
+                        
+                return max(1, cpu_count - 1)  # 至少返回1
+            except Exception as e:
+                logging.warning(f"获取NUMA CPU数量失败: {str(e)}，使用系统总CPU数-1")
+                return psutil.cpu_count() - 1
+        else:
+            # 如果没有指定numa，使用系统总CPU数-1
+            return psutil.cpu_count() - 1
 
     def register(self):
         """注册worker到master"""

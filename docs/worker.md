@@ -10,5 +10,6 @@ crf | int | 视频质量 | 否 | 0-51, cpu+vr时默认20, cpu+no-vr时默认22, 
 preset | string | 视频质量 | 否 |  cpu+vr时默认slow, cpu+no-vr时默认medium, qsv+no-vr时默认slow, nvenc+no-vr时默认slow
 rate | int | 视频帧率 | 否 | 默认为空("")即不改变帧率, 可选30,60
 numa_param | string | numa参数 | 否 | 只在cpu时有效，默认为None，例：4numa时想使用node2，则填"-,-,+,-"
+thread | int | 线程数 | 否 | 只在cpu时有效，默认None表示不指定，由ffmpeg自行决定
 remove_original | int | 是否删除原视频 | 否 | 0:不删除, 1:删除, 默认不删除
 num | int | 转码个数 | 否 | 默认-1，表示不限制
