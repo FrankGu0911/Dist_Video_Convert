@@ -214,23 +214,34 @@ class Worker(BasicWorker):
         else:
             logging.info("使用另存模式")
             # 另存模式：创建目标目录并移动文件
-            save_path = os.path.join(self.prefix_path, self.save_path, os.path.dirname(task["video_path"]), video.video_name)
-            os.makedirs(save_path, exist_ok=True)
+            # 从完整路径中移除服务器地址部分
+            rel_path = video.video_path[len(self.prefix_path):]
+            if rel_path.startswith('\\'):
+                rel_path = rel_path[1:]  # 移除开头的反斜杠
+                
+            # 构建目标路径
+            save_dir = os.path.join(self.prefix_path, self.save_path, os.path.dirname(rel_path))
+            save_path = os.path.join(save_dir, video.video_name)
+            
+            logging.info(f"创建目标目录: {save_dir}")
+            os.makedirs(save_dir, exist_ok=True)
+            
             logging.info(f"移动新文件到: {save_path}")
             os.rename(temp_output, save_path)
+            
             if self.remove_original:
                 logging.info(f"删除原文件: {video.video_path}")
                 os.remove(video.video_path)
 
         # 更新任务状态为完成
         logging.info("更新任务状态为完成")
-        # self.update_task_status(
-        #     task_id=task["task_id"],
-        #     status=TaskStatus.COMPLETED,
-        #     progress=100.0,
-        #     elapsed_time=0,
-        #     remaining_time=0
-        # )
+        self.update_task_status(
+            task_id=task["task_id"],
+            status=TaskStatus.COMPLETED,
+            progress=100.0,
+            elapsed_time=0,
+            remaining_time=0
+        )
 
 if __name__ == "__main__":
     # 设置日志格式
