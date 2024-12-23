@@ -214,7 +214,7 @@ class Worker(BasicWorker):
         else:
             logging.info("使用另存模式")
             # 另存模式：创建目标目录并移动文件
-            save_path = os.path.join(self.prefix_path, self.save_path, os.path.dirname(task["video_path"]))
+            save_path = os.path.join(self.prefix_path, self.save_path, os.path.dirname(task["video_path"]), video.video_name)
             os.makedirs(save_path, exist_ok=True)
             logging.info(f"移动新文件到: {save_path}")
             os.rename(temp_output, save_path)
@@ -224,13 +224,13 @@ class Worker(BasicWorker):
 
         # 更新任务状态为完成
         logging.info("更新任务状态为完成")
-        self.update_task_status(
-            task_id=task["task_id"],
-            status=TaskStatus.COMPLETED,
-            progress=100.0,
-            elapsed_time=0,
-            remaining_time=0
-        )
+        # self.update_task_status(
+        #     task_id=task["task_id"],
+        #     status=TaskStatus.COMPLETED,
+        #     progress=100.0,
+        #     elapsed_time=0,
+        #     remaining_time=0
+        # )
 
 if __name__ == "__main__":
     # 设置日志格式
