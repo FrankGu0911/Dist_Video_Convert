@@ -2,7 +2,8 @@ import os
 import logging
 from typing import Optional
 import argparse
-from datetime import datetime, time
+import time
+from datetime import datetime
 from .base import BasicWorker, WorkerType, TaskStatus
 from video import Video
 
@@ -16,6 +17,9 @@ class Worker(BasicWorker):
                 video_path: 视频相对路径
         """
         try:
+            # 记录开始时间
+            start_time = time.time()
+            
             # 验证任务数据
             required_fields = ['task_id', 'video_path']
             for field in required_fields:
@@ -30,7 +34,6 @@ class Worker(BasicWorker):
             
             # 创建必要的目录
             self.tmp_path = os.path.join(self.prefix_path,self.tmp_path,os.path.dirname(task["video_path"]))
-            # self.tmp_path = os.path.join(os.path.dirname(video_path), "tmp")
             os.makedirs(self.tmp_path, exist_ok=True)
             logging.info(f"临时目录: {self.tmp_path}")
             
@@ -38,7 +41,6 @@ class Worker(BasicWorker):
             log_dir = "logs"
             os.makedirs(log_dir, exist_ok=True)
             logging.info(f"日志目录: {log_dir}")
-            # os.environ["FFMPEG_LOG_DIR"] = log_dir  # 设置环境变量供Video类使用
             
             # 创建Video对象
             video = Video(video_path)
@@ -58,93 +60,116 @@ class Worker(BasicWorker):
             # 根据worker类型选择不同的转码方法
             logging.info(f"使用 {self.worker_type.name} 模式进行转码")
             if self.worker_type == WorkerType.CPU:
-                self._process_cpu_task(video, task)
+                success = self._process_cpu_task(video, task, start_time)
             elif self.worker_type == WorkerType.NVENC:
-                self._process_nvenc_task(video, task)
+                success = self._process_nvenc_task(video, task, start_time)
             elif self.worker_type == WorkerType.QSV:
-                self._process_qsv_task(video, task)
+                success = self._process_qsv_task(video, task, start_time)
             else:
                 raise ValueError(f"不支持的worker类型: {self.worker_type}")
+                
+            return success
                 
         except Exception as e:
             error_msg = f"处理任务失败: {str(e)}"
             logging.error(error_msg)
             logging.error(f"任务详情: {task}")
+            elapsed_time = int(time.time() - start_time)
             self.update_task_status(
                 task_id=task["task_id"],
                 status=TaskStatus.FAILED,
                 progress=0.0,
                 error_message=error_msg,
-                elapsed_time=0,
+                elapsed_time=elapsed_time,
                 remaining_time=0
             )
-            raise e
+            logging.warning("继续等待下一个任务...")
+            return False
 
-    def _process_cpu_task(self, video: Video, task: dict):
+    def _process_cpu_task(self, video: Video, task: dict, start_time: float):
         """处理CPU转码任务"""
         logging.info(f"开始CPU转码任务: {'VR视频' if video.is_vr else '普通视频'}")
         
         def progress_callback(progress: float, elapsed_time: int, remaining_time: Optional[int]):
+            # 使用实际经过的时间
+            real_elapsed_time = int(time.time() - start_time)
+            # 如果tqdm计算的剩余时间波动太大，使用基于进度的估算
+            if progress > 0:
+                estimated_total_time = real_elapsed_time / (progress / 100)
+                estimated_remaining = max(0, int(estimated_total_time - real_elapsed_time))
+                # 如果tqdm的估算相差太大（超过50%），使用我们的估算
+                if remaining_time is None or abs(remaining_time - estimated_remaining) > estimated_remaining * 0.5:
+                    remaining_time = estimated_remaining
+            
             self.update_task_status(
                 task_id=task["task_id"],
                 status=TaskStatus.RUNNING,
                 progress=progress,
-                elapsed_time=elapsed_time,
+                elapsed_time=real_elapsed_time,
                 remaining_time=remaining_time if remaining_time is not None else 0
             )
-            # if int(progress) % 10 == 0:  # 每进度10%输出一次日志
-            #     logging.info(f"转码进度: {progress:.1f}%, 已用时间: {elapsed_time}秒, 预计剩余时间: {remaining_time if remaining_time is not None else '未知'}秒")
         
-        # 处理rate参数
-        rate_str = str(self.rate) if self.rate is not None else ""
-        
-        # 如果是VR视频，使用VR专用的参数
-        if video.is_vr:
-            if not self.support_vr:
-                raise ValueError("当前worker不支持VR视频处理")
-            logging.info("使用VR视频转码参数")
-            # VR视频使用较高质量的参数
-            video.convert_to_h265(
-                crf=self.crf,  # VR默认20
-                preset=self.preset,  # VR默认slow
-                rate="",  # VR不支持指定帧率
-                output_folder=self.tmp_path,
-                remove_original=False,  # 先不删除原文件
-                numa_param=self.numa_param,
-                progress_callback=progress_callback
-            )
-        else:
-            logging.info("使用普通视频转码参数")
-            logging.info(f"转码参数: crf={self.crf}, preset={self.preset}, rate={rate_str}")
-            # 普通视频使用标准参数
-            video.convert_to_h265(
-                crf=self.crf,  # 默认22
-                preset=self.preset,  # 默认medium
-                rate=rate_str,
-                output_folder=self.tmp_path,
-                remove_original=False,
-                numa_param=self.numa_param,
-                progress_callback=progress_callback
-            )
+        try:
+            # 处理rate参数
+            rate_str = str(self.rate) if self.rate is not None else ""
+            
+            # 如果是VR视频，使用VR专用的参数
+            if video.is_vr:
+                if not self.support_vr:
+                    raise ValueError("当前worker不支持VR视频处理")
+                logging.info("使用VR视频转码参数")
+                video.convert_to_h265(
+                    crf=self.crf,
+                    preset=self.preset,
+                    rate="",
+                    output_folder=self.tmp_path,
+                    remove_original=False,
+                    numa_param=self.numa_param,
+                    progress_callback=progress_callback
+                )
+            else:
+                logging.info("使用普通视频转码参数")
+                logging.info(f"转码参数: crf={self.crf}, preset={self.preset}, rate={rate_str}")
+                video.convert_to_h265(
+                    crf=self.crf,
+                    preset=self.preset,
+                    rate=rate_str,
+                    output_folder=self.tmp_path,
+                    remove_original=False,
+                    numa_param=self.numa_param,
+                    progress_callback=progress_callback
+                )
 
-        # 转码完成后的处理
-        self._handle_completion(video, task)
+            # 转码完成后的处理
+            self._handle_completion(video, task, start_time)
+            return True
+            
+        except Exception as e:
+            raise e
 
-    def _process_nvenc_task(self, video: Video, task: dict):
+    def _process_nvenc_task(self, video: Video, task: dict, start_time: float):
         """处理NVENC转码任务"""
         logging.info("开始NVENC转码任务")
         
         def progress_callback(progress: float, elapsed_time: int, remaining_time: Optional[int]):
+            # 使用实际经过的时间
+            real_elapsed_time = int(time.time() - start_time)
+            # 如果tqdm计算的剩余时间波动太大，使用基于进度的估算
+            if progress > 0:
+                estimated_total_time = real_elapsed_time / (progress / 100)
+                estimated_remaining = max(0, int(estimated_total_time - real_elapsed_time))
+                # 如果tqdm的估算相差太大（超过50%），使用我们的估算
+                if remaining_time is None or abs(remaining_time - estimated_remaining) > estimated_remaining * 0.5:
+                    remaining_time = estimated_remaining
+            
             self.update_task_status(
                 task_id=task["task_id"],
                 status=TaskStatus.RUNNING,
                 progress=progress,
-                elapsed_time=elapsed_time,
+                elapsed_time=real_elapsed_time,
                 remaining_time=remaining_time if remaining_time is not None else 0
             )
-            # if int(progress) % 10 == 0:  # 每进度10%输出一次日志
-            #     logging.info(f"转码进度: {progress:.1f}%, 已用时间: {elapsed_time}秒, 预计剩余时间: {remaining_time if remaining_time is not None else '未知'}秒")
-
+        
         # 处理rate参数
         rate_value = self.rate if self.rate is not None else 30  # NVENC默认使用30fps
         logging.info(f"转码参数: qmin={self.crf}, preset={self.preset}, rate={rate_value}")
@@ -159,23 +184,31 @@ class Worker(BasicWorker):
         )
 
         # 转码完成后的处理
-        self._handle_completion(video, task)
+        self._handle_completion(video, task, start_time)
 
-    def _process_qsv_task(self, video: Video, task: dict):
+    def _process_qsv_task(self, video: Video, task: dict, start_time: float):
         """处理QSV转码任务"""
         logging.info("开始QSV转码任务")
         
         def progress_callback(progress: float, elapsed_time: int, remaining_time: Optional[int]):
+            # 使用实际经过的时间
+            real_elapsed_time = int(time.time() - start_time)
+            # 如果tqdm计算的剩余时间波动太大，使用基于进度的估算
+            if progress > 0:
+                estimated_total_time = real_elapsed_time / (progress / 100)
+                estimated_remaining = max(0, int(estimated_total_time - real_elapsed_time))
+                # 如果tqdm的估算相差太大（超过50%），使用我们的估算
+                if remaining_time is None or abs(remaining_time - estimated_remaining) > estimated_remaining * 0.5:
+                    remaining_time = estimated_remaining
+            
             self.update_task_status(
                 task_id=task["task_id"],
                 status=TaskStatus.RUNNING,
                 progress=progress,
-                elapsed_time=elapsed_time,
+                elapsed_time=real_elapsed_time,
                 remaining_time=remaining_time if remaining_time is not None else 0
             )
-            # if int(progress) % 10 == 0:  # 每进度10%输出一次日志
-            #     logging.info(f"转码进度: {progress:.1f}%, 已用时间: {elapsed_time}秒, 预计剩余时间: {remaining_time if remaining_time is not None else '未知'}秒")
-
+        
         # 处理rate参数
         rate_str = str(self.rate) if self.rate is not None else ""
         logging.info(f"转码参数: global_quality={self.crf}, preset={self.preset}, rate={rate_str}")
@@ -190,19 +223,22 @@ class Worker(BasicWorker):
         )
 
         # 转码完成后的处理
-        self._handle_completion(video, task)
+        self._handle_completion(video, task, start_time)
 
-    def _handle_completion(self, video: Video, task: dict):
+    def _handle_completion(self, video: Video, task: dict, start_time: float):
         """处理转码完成后的操作"""
         logging.info("开始处理转码完成后的操作")
         
         # 获取临时文件路径
-        temp_output = os.path.join(self.tmp_path, video.video_name_noext + "_h265.mp4")
+        # 只有当临时目录和原视频在同一目录时才添加_h265后缀
+        if os.path.dirname(video.video_path) == self.tmp_path:
+            temp_output = os.path.join(self.tmp_path, video.video_name_noext + "_h265.mp4")
+        else:
+            temp_output = os.path.join(self.tmp_path, video.video_name)
         logging.info(f"临时文件路径: {temp_output}")
         
         if self.save_path == "!replace":
             logging.info("使用替换模式")
-            # 替换模式：备份原文件，将新文件移动到原位置
             backup_path = video.video_path + ".bak"
             logging.info(f"备份原文件到: {backup_path}")
             os.rename(video.video_path, backup_path)
@@ -213,13 +249,10 @@ class Worker(BasicWorker):
                 os.remove(backup_path)
         else:
             logging.info("使用另存模式")
-            # 另存模式：创建目标目录并移动文件
-            # 从完整路径中移除服务器地址部分
             rel_path = video.video_path[len(self.prefix_path):]
             if rel_path.startswith('\\'):
-                rel_path = rel_path[1:]  # 移除开头的反斜杠
+                rel_path = rel_path[1:]
                 
-            # 构建目标路径
             save_dir = os.path.join(self.prefix_path, self.save_path, os.path.dirname(rel_path))
             save_path = os.path.join(save_dir, video.video_name)
             
@@ -228,18 +261,21 @@ class Worker(BasicWorker):
             
             logging.info(f"移动新文件到: {save_path}")
             os.rename(temp_output, save_path)
-            
             if self.remove_original:
                 logging.info(f"删除原文件: {video.video_path}")
                 os.remove(video.video_path)
 
-        # 更新任务状态为完成
+        # 计算实际总耗时
+        total_elapsed_time = int(time.time() - start_time)
+        logging.info(f"任务总耗时: {total_elapsed_time}秒")
+        
+        # 更新任务状态为完成，使用实际耗时
         logging.info("更新任务状态为完成")
         self.update_task_status(
             task_id=task["task_id"],
             status=TaskStatus.COMPLETED,
             progress=100.0,
-            elapsed_time=0,
+            elapsed_time=total_elapsed_time,
             remaining_time=0
         )
 
