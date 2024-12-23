@@ -283,6 +283,10 @@ def create_task():
         else:
             query = query.filter(VideoInfo.is_vr == 0)
 
+        # 如果不是CPU worker，限制只能转码1080p及以下的视频
+        if worker_type != 0:  # 非CPU类型
+            query = query.filter(VideoInfo.resolutionall <= 1920*1080+100)
+
         # 按照码率降序排序
         video = query.order_by(
             VideoInfo.bitrate_k.desc()
