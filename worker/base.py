@@ -43,7 +43,8 @@ class BasicWorker:
                  remove_original: bool = False,
                  num: int = -1,
                  start_time: Optional[Time] = None,
-                 end_time: Optional[Time] = None):
+                 end_time: Optional[Time] = None,
+                 hw_decode: bool = False):
         """初始化worker
         Args:
             worker_name: worker名称
@@ -66,6 +67,7 @@ class BasicWorker:
             num: 转码次数限制 (-1表示不限制)
             start_time: 工作开始时间
             end_time: 工作结束时间
+            hw_decode: 是否启用硬件解码 (对于CPU编码器会被忽略)
         """
         self.name = worker_name
         self.worker_type = worker_type
@@ -114,6 +116,13 @@ class BasicWorker:
         self.current_task = None
         self.heartbeat_thread = None
         self.running = False
+        
+        # 硬件解码设置
+        if worker_type == WorkerType.CPU and hw_decode:
+            logging.warning("CPU编码模式下不支持硬件解码，已忽略hw_decode=True设置")
+            self.hw_decode = False
+        else:
+            self.hw_decode = hw_decode
 
         # 设置当前进程为较高优先级，确保网络请求等关键操作不受影响
         self._set_process_priority()

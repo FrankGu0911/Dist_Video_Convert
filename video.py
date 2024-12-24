@@ -202,22 +202,129 @@ class Video:
         p.wait()
         return p.returncode
 
-    def convert_to_hevc_qsv(self, global_quality=23, preset="medium", rate="", output_folder=None, remove_original=False, progress_callback=None):
-        # ffmpeg -i %s -c:v hevc_qsv -preset %s -global_quality %s  -c:a copy %s
+    def check_output_path(self, output_folder):
+        if output_folder is None or self.are_paths_same(output_folder, self.video_folder):
+            output_folder = self.video_folder
+            output_path = os.path.join(output_folder, self.video_name_noext + "_h265.mp4")
+        else:
+            output_path = os.path.join(output_folder, self.video_name)
+        return output_path
+
+    def build_ffmpeg_command(self, codec_params):
+        """构建ffmpeg命令
+        
+        Args:
+            codec_params (dict): 编码参数字典，必须包含以下键：
+                - codec: 编码器名称 (如 'hevc_qsv', 'hevc_nvenc', 'libx265', 'libsvtav1')
+                - output_path: 输出文件路径
+                其他可选参数：
+                - global_quality: QSV的质量参数
+                - qmin: NVENC的最小量化参数
+                - crf: libx265和av1的CRF值
+                - preset: 预设值
+                - rate: 帧率
+                - extra_params: 额外的编码参数字典
+                - hw_decode: 是否启用硬件解码，默认False
+        
+        Returns:
+            str: 完整的ffmpeg命令
+        """
+        codec = codec_params['codec']
+        output_path = codec_params['output_path']
+        hw_decode = codec_params.get('hw_decode', False)
+        
+        # 根据编码器和硬件解码设置选择解码参数
+        if hw_decode:
+            if codec == 'hevc_nvenc':
+                base_cmd = 'ffmpeg -y -hwaccel cuda -hwaccel_output_format cuda -i "%s"' % self.video_path
+            elif codec == 'hevc_qsv':
+                base_cmd = 'ffmpeg -y -hwaccel qsv -i "%s"' % self.video_path
+            else:
+                logging.warning("使用CPU编码时不建议启用硬件解码，将使用软解码")
+                base_cmd = 'ffmpeg -y -i "%s"' % self.video_path
+        else:
+            base_cmd = 'ffmpeg -y -i "%s"' % self.video_path
+        
+        # 编码器特定参数
+        encode_params = []
+        
+        if codec == 'hevc_qsv':
+            encode_params.extend([
+                '-c:v hevc_qsv',
+                '-preset %s' % codec_params.get('preset', 'medium'),
+                '-global_quality %d' % codec_params.get('global_quality', 23)
+            ])
+        
+        elif codec == 'hevc_nvenc':
+            encode_params.extend([
+                '-c:v hevc_nvenc',
+                '-preset %s' % codec_params.get('preset', 'p5'),
+                '-rc vbr',
+                '-qmin %d' % codec_params.get('qmin', 23),
+                '-qmax %d' % codec_params.get('qmin', 23),  # 设置与qmin相同
+                '-rc-lookahead 32',
+                '-b_ref_mode each',
+                '-spatial_aq 1',
+                '-aq-strength 8',
+                '-profile:v main',
+                '-level 5.2'
+            ])
+        
+        elif codec == 'libx265':
+            numa_param = codec_params.get('numa_param')
+            if numa_param:
+                encode_params.append('-x265-params pools="%s"' % numa_param)
+            encode_params.extend([
+                '-c:v libx265',
+                '-crf %d' % codec_params.get('crf', 22),
+                '-preset %s' % codec_params.get('preset', 'medium')
+            ])
+        
+        elif codec == 'libsvtav1':
+            encode_params.extend([
+                '-c:v libsvtav1',
+                '-crf %d' % codec_params.get('crf', 30),
+                '-preset %d' % codec_params.get('preset', 8),
+                '-pix_fmt yuv420p',
+                '-g 240',
+                '-svtav1-params "tune=0:lookahead=120"'
+            ])
+        
+        # 通用参数
+        rate = codec_params.get('rate')
+        if rate:
+            if isinstance(rate, int):
+                rate = str(rate)
+            if rate.isdigit():
+                encode_params.append('-r %s' % rate)
+        
+        # 额外参数
+        extra_params = codec_params.get('extra_params', {})
+        for key, value in extra_params.items():
+            if value is not None:
+                encode_params.append(f'-{key} {value}')
+        
+        # 音频编码（默认复制）
+        encode_params.append('-c:a copy')
+        
+        # 组装完整命令
+        return '%s %s "%s"' % (base_cmd, ' '.join(encode_params), output_path)
+
+    def convert_to_hevc_qsv(self, global_quality=23, preset="medium", rate="", output_folder=None, remove_original=False, progress_callback=None, hw_decode=False):
         output_path = self.check_output_path(output_folder)
         logging.info("Converting %s to h265 with global_quality %s" % (self.video_name, global_quality))
         logging.info("Output file: %s" % output_path)
-        if rate is None:
-            rate = ''
-        if rate != "":
-            # check rate num 
-            if type(rate) == int:
-                rate = str(rate)
-            assert rate.isdigit()
-            rate = '-r %s' % rate
+        
         try:
-            # ffmpeg.input(self.video_path).output(output_path, global_quality=23, preset=preset, vcodec="hevc_qsv", acodec='copy').run()
-            cmd = 'ffmpeg -y -i "%s" -c:v hevc_qsv %s -preset %s -global_quality %d  -c:a copy "%s"' % (self.video_path, rate, preset, global_quality, output_path)
+            cmd = self.build_ffmpeg_command({
+                'codec': 'hevc_qsv',
+                'output_path': output_path,
+                'global_quality': global_quality,
+                'preset': preset,
+                'rate': rate,
+                'hw_decode': hw_decode
+            })
+            logging.info(cmd)
             self.convert_video_with_progress(cmd, progress_callback)
         except Exception as e:
             print(e)
@@ -225,19 +332,12 @@ class Video:
         if remove_original:
             os.remove(self.video_path)
 
-    def convert_to_hevc_nvenc(self, qmin=23, preset="p5", rate=30, output_folder=None, remove_original=False, progress_callback=None):
-        """使用NVIDIA NVENC将视频转换为HEVC/H.265格式
+    def convert_to_hevc_nvenc(self, qmin=23, preset="p5", rate=30, output_folder=None, remove_original=False, progress_callback=None, hw_decode=False):
+        output_path = self.check_output_path(output_folder)
+        logging.info("Converting %s to h265 with NVENC (qmin=%s, preset=%s)" % (self.video_name, qmin, preset))
+        logging.info("Output file: %s" % output_path)
         
-        Args:
-            qmin (int): 最小量化参数，控制视频质量，范围1-51，默认23
-            preset (str): NVENC预设，支持p1-p7或通用预设(veryslow,slower,slow,medium,fast,faster,veryfast)，默认p5
-                         p1最快质量最低，p7最慢质量最好
-            rate (int): 输出帧率，默认30
-            output_folder (str): 输出文件夹路径，默认为None（使用源文件夹）
-            remove_original (bool): 是否删除原始文件，默认False
-            progress_callback (callable): 进度回调函数，默认None
-        """
-        # 预设值映射字典 (p1最快质量最低，p7最慢质量最好)
+        # 预设值映射
         preset_mapping = {
             'veryfast': 'p1',
             'faster': 'p2',
@@ -248,32 +348,24 @@ class Video:
             'veryslow': 'p7'
         }
         
-        # 如果输入的是通用预设，转换为NVENC预设
+        # 处理预设值
         if preset.lower() in preset_mapping:
             preset = preset_mapping[preset.lower()]
-        # 如果是p1-p7格式，统一转为小写
         elif preset.lower() in ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']:
             preset = preset.lower()
         else:
             logging.warning(f"未知的预设值: {preset}，使用默认值p5")
             preset = 'p5'
             
-        output_path = self.check_output_path(output_folder)
-        logging.info("Converting %s to h265 with NVENC (qmin=%s, preset=%s)" % (self.video_name, qmin, preset))
-        logging.info("Output file: %s" % output_path)
-        
-        # 处理帧率参数
-        rate_param = ''
-        if rate:
-            if isinstance(rate, int):
-                rate = str(rate)
-            assert rate.isdigit()
-            rate_param = '-r %s' % rate
-            
         try:
-            cmd = 'ffmpeg -y -i "%s" -c:v hevc_nvenc %s -preset %s -rc vbr -qmin %d -qmax %d -rc-lookahead 32 -b_ref_mode each -spatial_aq 1 -aq-strength 8 -profile:v main -level 5.2 -c:a copy "%s"' % (
-                self.video_path, rate_param, preset, qmin, qmin, output_path
-            )
+            cmd = self.build_ffmpeg_command({
+                'codec': 'hevc_nvenc',
+                'output_path': output_path,
+                'qmin': qmin,
+                'preset': preset,
+                'rate': rate,
+                'hw_decode': hw_decode
+            })
             logging.info(cmd)
             self.convert_video_with_progress(cmd, progress_callback)
         except Exception as e:
@@ -283,24 +375,21 @@ class Video:
         if remove_original:
             os.remove(self.video_path)
 
-    def convert_to_h265(self, crf=22, preset="medium", rate="", output_folder=None, remove_original=False, numa_param:str=None, progress_callback=None):
+    def convert_to_h265(self, crf=22, preset="medium", rate="", output_folder=None, remove_original=False, numa_param:str=None, progress_callback=None, hw_decode=False):
         output_path = self.check_output_path(output_folder)
         logging.info("Converting %s to h265 with crf %s" % (self.video_name, crf))
         logging.info("Output file: %s" % output_path)
-        # ffmpeg -i %s -c:v libx265 -crf %d -preset %s -c:a copy %s
-        if numa_param is None:
-            numa_str = ''
-        else:
-            numa_str = '-x265-params pools="%s"' % numa_param
-        if rate != "":
-            # check rate num 
-            if type(rate) == int:
-                rate = str(rate)
-            assert rate.isdigit()
-            rate = '-r %s' % rate
+        
         try:
-            # ffmpeg.input(self.video_path).output(output_path, crf=crf, preset=preset, vcodec="libx265", acodec='copy').run()
-            cmd = 'ffmpeg -y -i "%s" -c:v libx265 %s %s -crf %d -preset %s -c:a copy "%s"' % (self.video_path,numa_str, rate, crf, preset, output_path)
+            cmd = self.build_ffmpeg_command({
+                'codec': 'libx265',
+                'output_path': output_path,
+                'crf': crf,
+                'preset': preset,
+                'rate': rate,
+                'numa_param': numa_param,
+                'hw_decode': hw_decode
+            })
             logging.info(cmd)
             self.convert_video_with_progress(cmd, progress_callback)
         except Exception as e:
@@ -309,16 +398,19 @@ class Video:
         if remove_original:
             os.remove(self.video_path)
 
-    def convert_to_av1(self, crf=30, preset=8, output_folder=None, remove_original=False,progress_callback=None): 
+    def convert_to_av1(self, crf=30, preset=8, output_folder=None, remove_original=False, progress_callback=None, hw_decode=False): 
         output_path = self.check_output_path(output_folder)
         logging.info("Converting %s to av1 with crf %s, preset %s" % (self.video_name, crf, preset))
         logging.info("Output file: %s" % output_path)
-        # ffmpeg -i %s -c:v libaom-av1 -crf %d -preset %s -c:a copy %s
+        
         try:
-            # TODO: ffmpeg 
-            # ffmpeg.input(self.video_path).output(output_path, crf=crf, preset=preset, vcodec="libaom-av1", acodec='copy').run()
-            # ffmpeg -hwaccel nvdec -i "1.mp4" -c:v libsvtav1 -preset 5 -crf 30 -pix_fmt yuv420p -g 240 -svtav1-params "tune=0:lookahead=120" -c:a copy "1.mp4"
-            cmd = 'ffmpeg -y -i "%s" -c:v libsvtav1 -crf %d -preset %d -pix_fmt yuv420p -g 240 -svtav1-params "tune=0:lookahead=120" -c:a copy "%s"' % (self.video_path, crf, preset, output_path)
+            cmd = self.build_ffmpeg_command({
+                'codec': 'libsvtav1',
+                'output_path': output_path,
+                'crf': crf,
+                'preset': preset,
+                'hw_decode': hw_decode
+            })
             logging.info(cmd)
             self.convert_video_with_progress(cmd, progress_callback)
         except Exception as e:
@@ -345,14 +437,6 @@ class Video:
         os.copy(self.video_path, dest_path)
         return Video(dest_path)
     
-    def check_output_path(self, output_folder):
-        if output_folder is None or self.are_paths_same(output_folder, self.video_folder):
-            output_folder = self.video_folder
-            output_path = os.path.join(output_folder, self.video_name_noext + "_h265.mp4")
-        else:
-            output_path = os.path.join(output_folder, self.video_name)
-        return output_path
-
     def JudgeVR(self):
         is_vr = False
         for i in self.vr_code:

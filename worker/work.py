@@ -8,6 +8,9 @@ from .base import BasicWorker, WorkerType, TaskStatus
 from video import Video
 
 class Worker(BasicWorker):
+    def __init__(self, worker_name: str, worker_type: WorkerType, master_url: str, prefix_path: str, save_path: str, tmp_path: str = None, support_vr: bool = False, crf: int = None, preset: str = None, rate: int = None, numa_param: str = None, remove_original: bool = False, num: int = -1, start_time=None, end_time=None, hw_decode: bool = False):
+        super().__init__(worker_name, worker_type, master_url, prefix_path, save_path, tmp_path, support_vr, crf, preset, rate, numa_param, None, remove_original, num, start_time, end_time, hw_decode)
+
     def process_task(self, task):
         """处理转码任务
         
@@ -57,16 +60,8 @@ class Worker(BasicWorker):
             )
             logging.info("任务状态已更新为运行中")
             
-            # 根据worker类型选择不同的转码方法
-            logging.info(f"使用 {self.worker_type.name} 模式进行转码")
-            if self.worker_type == WorkerType.CPU:
-                success = self._process_cpu_task(video, task, start_time)
-            elif self.worker_type == WorkerType.NVENC:
-                success = self._process_nvenc_task(video, task, start_time)
-            elif self.worker_type == WorkerType.QSV:
-                success = self._process_qsv_task(video, task, start_time)
-            else:
-                raise ValueError(f"不支持的worker类型: {self.worker_type}")
+            # 处理任务
+            success = self._process_transcode_task(video, task, start_time)
                 
             return success
                 
@@ -86,9 +81,9 @@ class Worker(BasicWorker):
             logging.warning("继续等待下一个任务...")
             return False
 
-    def _process_cpu_task(self, video: Video, task: dict, start_time: float):
-        """处理CPU转码任务"""
-        logging.info(f"开始CPU转码任务: {'VR视频' if video.is_vr else '普通视频'}")
+    def _process_transcode_task(self, video: Video, task: dict, start_time: float):
+        """处理转码任务"""
+        logging.info(f"开始转码任务: {'VR视频' if video.is_vr else '普通视频'}")
         
         def progress_callback(progress: float, elapsed_time: int, remaining_time: Optional[int]):
             # 使用实际经过的时间
@@ -110,35 +105,62 @@ class Worker(BasicWorker):
             )
         
         try:
-            # 处理rate参数
-            rate_str = str(self.rate) if self.rate is not None else ""
-            
-            # 如果是VR视频，使用VR专用的参数
-            if video.is_vr:
-                if not self.support_vr:
+            # 根据worker类型设置编码器和参数
+            if self.worker_type == WorkerType.CPU:
+                if video.is_vr and not self.support_vr:
                     raise ValueError("当前worker不支持VR视频处理")
-                logging.info("使用VR视频转码参数")
-                video.convert_to_h265(
-                    crf=self.crf,
-                    preset=self.preset,
-                    rate="",
-                    output_folder=self.tmp_path,
-                    remove_original=False,
-                    numa_param=self.numa_param,
-                    progress_callback=progress_callback
-                )
+                codec = 'libx265'
+                rate_str = str(self.rate) if self.rate is not None else ""
+                codec_params = {
+                    'codec': codec,
+                    'crf': self.crf,
+                    'preset': self.preset,
+                    'rate': rate_str,
+                    'numa_param': self.numa_param,
+                    'hw_decode': self.hw_decode
+                }
+            elif self.worker_type == WorkerType.NVENC:
+                codec = 'hevc_nvenc'
+                rate_value = self.rate if self.rate is not None else 30
+                codec_params = {
+                    'codec': codec,
+                    'qmin': self.crf,
+                    'preset': self.preset,
+                    'rate': rate_value,
+                    'hw_decode': self.hw_decode
+                }
+            elif self.worker_type == WorkerType.QSV:
+                codec = 'hevc_qsv'
+                rate_str = str(self.rate) if self.rate is not None else ""
+                codec_params = {
+                    'codec': codec,
+                    'global_quality': self.crf,
+                    'preset': self.preset,
+                    'rate': rate_str,
+                    'hw_decode': self.hw_decode
+                }
             else:
-                logging.info("使用普通视频转码参数")
-                logging.info(f"转码参数: crf={self.crf}, preset={self.preset}, rate={rate_str}")
-                video.convert_to_h265(
-                    crf=self.crf,
-                    preset=self.preset,
-                    rate=rate_str,
-                    output_folder=self.tmp_path,
-                    remove_original=False,
-                    numa_param=self.numa_param,
-                    progress_callback=progress_callback
-                )
+                raise ValueError(f"不支持的worker类型: {self.worker_type}")
+            
+            # 设置输出路径
+            codec_params['output_path'] = os.path.join(
+                self.tmp_path, 
+                video.video_name if not os.path.dirname(video.video_path) == self.tmp_path 
+                else video.video_name_noext + "_h265.mp4"
+            )
+            
+            # 获取ffmpeg命令
+            cmd = video.build_ffmpeg_command(codec_params)
+            
+            # 记录转码命令到日志
+            self.update_task_log(
+                task_id=task["task_id"],
+                log_level=1,  # info级别
+                log_message=f"FFmpeg command: {cmd}"
+            )
+            
+            # 执行转码
+            video.convert_video_with_progress(cmd, progress_callback)
 
             # 转码完成后的处理
             self._handle_completion(video, task, start_time)
@@ -146,84 +168,6 @@ class Worker(BasicWorker):
             
         except Exception as e:
             raise e
-
-    def _process_nvenc_task(self, video: Video, task: dict, start_time: float):
-        """处理NVENC转码任务"""
-        logging.info("开始NVENC转码任务")
-        
-        def progress_callback(progress: float, elapsed_time: int, remaining_time: Optional[int]):
-            # 使用实际经过的时间
-            real_elapsed_time = int(time.time() - start_time)
-            # 如果tqdm计算的剩余时间波动太大，使用基于进度的估算
-            if progress > 0:
-                estimated_total_time = real_elapsed_time / (progress / 100)
-                estimated_remaining = max(0, int(estimated_total_time - real_elapsed_time))
-                # 如果tqdm的估算相差太大（超过50%），使用我们的估算
-                if remaining_time is None or abs(remaining_time - estimated_remaining) > estimated_remaining * 0.5:
-                    remaining_time = estimated_remaining
-            
-            self.update_task_status(
-                task_id=task["task_id"],
-                status=TaskStatus.RUNNING,
-                progress=progress,
-                elapsed_time=real_elapsed_time,
-                remaining_time=remaining_time if remaining_time is not None else 0
-            )
-        
-        # 处理rate参数
-        rate_value = self.rate if self.rate is not None else 30  # NVENC默认使用30fps
-        logging.info(f"转码参数: qmin={self.crf}, preset={self.preset}, rate={rate_value}")
-
-        video.convert_to_hevc_nvenc(
-            qmin=self.crf,  # 默认23
-            preset=self.preset,  # 默认p5
-            rate=rate_value,
-            output_folder=self.tmp_path,
-            remove_original=False,
-            progress_callback=progress_callback
-        )
-
-        # 转码完成后的处理
-        self._handle_completion(video, task, start_time)
-
-    def _process_qsv_task(self, video: Video, task: dict, start_time: float):
-        """处理QSV转码任务"""
-        logging.info("开始QSV转码任务")
-        
-        def progress_callback(progress: float, elapsed_time: int, remaining_time: Optional[int]):
-            # 使用实际经过的时间
-            real_elapsed_time = int(time.time() - start_time)
-            # 如果tqdm计算的剩余时间波动太大，使用基于进度的估算
-            if progress > 0:
-                estimated_total_time = real_elapsed_time / (progress / 100)
-                estimated_remaining = max(0, int(estimated_total_time - real_elapsed_time))
-                # 如果tqdm的估算相差太大（超过50%），使用我们的估算
-                if remaining_time is None or abs(remaining_time - estimated_remaining) > estimated_remaining * 0.5:
-                    remaining_time = estimated_remaining
-            
-            self.update_task_status(
-                task_id=task["task_id"],
-                status=TaskStatus.RUNNING,
-                progress=progress,
-                elapsed_time=real_elapsed_time,
-                remaining_time=remaining_time if remaining_time is not None else 0
-            )
-        
-        # 处理rate参数
-        rate_str = str(self.rate) if self.rate is not None else ""
-        logging.info(f"转码参数: global_quality={self.crf}, preset={self.preset}, rate={rate_str}")
-
-        video.convert_to_hevc_qsv(
-            global_quality=self.crf,  # 默认23
-            preset=self.preset,  # 默认medium
-            rate=rate_str,
-            output_folder=self.tmp_path,
-            remove_original=False,
-            progress_callback=progress_callback
-        )
-
-        # 转码完成后的处理
-        self._handle_completion(video, task, start_time)
 
     def _handle_completion(self, video: Video, task: dict, start_time: float):
         """处理转码完成后的操作"""
@@ -311,6 +255,7 @@ if __name__ == "__main__":
     parser.add_argument('--num', type=int, default=-1, help='转码数量限制，默认-1表示不限制')
     parser.add_argument('--start', help='工作开始时间，格式HH:MM，例如22:00')
     parser.add_argument('--end', help='工作结束时间，格式HH:MM，例如06:00')
+    parser.add_argument('--hw-decode', action='store_true', help='是否启用硬件解码（仅NVENC和QSV模式有效）')
 
     # 解析参数
     args = parser.parse_args()
@@ -350,7 +295,8 @@ if __name__ == "__main__":
             remove_original=args.remove,
             num=args.num,
             start_time=start_time,
-            end_time=end_time
+            end_time=end_time,
+            hw_decode=args.hw_decode
         )
 
         # 运行worker

@@ -32,7 +32,7 @@ def init_app(app):
             engineio_logger=logger  # 同样用于engineio的日志
         )
         
-        # WebSocket事件处理
+        # WebSocket事件处��
         @socketio.on('connect')
         def handle_connect():
             logger.info('Client connected')
@@ -694,4 +694,65 @@ def get_logs():
         return jsonify({
             'code': 500,
             'message': f'获取日志失败: {str(e)}'
+        }), 500
+
+@log_bp.route('', methods=['POST'])
+def create_log():
+    try:
+        data = request.get_json()
+        
+        # 必需参数
+        task_id = data.get('task_id')
+        log_level = data.get('log_level')
+        log_message = data.get('log_message')
+        
+        # 参数验证
+        if not all([task_id, log_level is not None, log_message]):
+            return jsonify({
+                'code': 400,
+                'message': '缺少必需参数'
+            }), 400
+            
+        # 验证日志级别是否合法（0-debug, 1-info, 2-warning, 3-error）
+        if log_level not in [0, 1, 2, 3]:
+            return jsonify({
+                'code': 400,
+                'message': '无效的日志级别'
+            }), 400
+            
+        # 验证task是否存在
+        task = TranscodeTask.query.filter_by(task_id=task_id).first()
+        if not task:
+            return jsonify({
+                'code': 404,
+                'message': '任务不存在'
+            }), 404
+        
+        # 创建日志记录
+        log = TranscodeLog(
+            task_id=task.id,  # 使用task的数据库ID
+            log_level=log_level,
+            log_message=log_message
+        )
+        
+        db.session.add(log)
+        db.session.commit()
+        
+        return jsonify({
+            'code': 201,
+            'message': '日志创建成功',
+            'data': {
+                'id': log.id,
+                'task_id': task_id,
+                'log_time': log.log_time.isoformat(),
+                'log_level': log.log_level,
+                'log_message': log.log_message
+            }
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'code': 500,
+            'message': f'创建日志失败: {str(e)}'
         }), 500
