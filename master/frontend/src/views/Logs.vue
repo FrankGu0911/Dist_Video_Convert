@@ -93,6 +93,43 @@
         </div>
       </div>
     </div>
+
+    <!-- 分页 -->
+    <div class="mt-4 flex items-center justify-between">
+      <div class="flex items-center">
+        <label class="mr-2 text-sm text-gray-700 dark:text-gray-300">每页显示:</label>
+        <select
+          v-model="pagination.per_page"
+          class="input w-20"
+        >
+          <option :value="10">10</option>
+          <option :value="20">20</option>
+          <option :value="50">50</option>
+          <option :value="100">100</option>
+        </select>
+      </div>
+      
+      <div class="flex items-center space-x-2">
+        <button
+          class="btn-secondary"
+          :disabled="!pagination.has_prev"
+          @click="pagination.current_page--"
+        >
+          上一页
+        </button>
+        <span class="text-sm text-gray-700 dark:text-gray-300">
+          第 {{ pagination.current_page }}/{{ pagination.pages }} 页
+          (共 {{ pagination.total }} 条)
+        </span>
+        <button
+          class="btn-secondary"
+          :disabled="!pagination.has_next"
+          @click="pagination.current_page++"
+        >
+          下一页
+        </button>
+      </div>
+    </div>
   </AppLayout>
 </template>
 
@@ -201,13 +238,12 @@ watch(
     () => filters.value.end_time,
     () => filters.value.sort_by,
     () => filters.value.order,
-    () => pagination.value.per_page
+    () => pagination.value.per_page,
+    () => pagination.value.current_page
   ],
   () => {
-    pagination.value.current_page = 1
     refreshLogs()
-  },
-  { immediate: true }
+  }
 )
 
 onMounted(async () => {

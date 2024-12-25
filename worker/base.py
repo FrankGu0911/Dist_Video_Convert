@@ -456,6 +456,47 @@ class BasicWorker:
         
         # 处理跨天的情况 (如22:00-06:00)
         if self.start_time > self.end_time:
-            return current_time >= self.start_time or current_time <= self.end_time
+            # 如果当前时间大于等于开始时间或小于等于结束时间，则在工作时间内
+            in_work_time = current_time >= self.start_time or current_time <= self.end_time
         else:
-            return self.start_time <= current_time <= self.end_time
+            # 如果当前时间在开始时间和结束时间之间，则在工作时间内
+            in_work_time = self.start_time <= current_time <= self.end_time
+            
+        if not in_work_time:
+            logging.info(f"当前时间 {current_time.strftime('%H:%M')} 不在工作时间范围内 ({self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')})")
+        
+        return in_work_time
+
+    def update_task_log(self, task_id: str, log_level: int, log_message: str):
+        """更新任务日志
+        
+        Args:
+            task_id: 任务ID
+            log_level: 日志级别 (0:debug, 1:info, 2:warning, 3:error)
+            log_message: 日志内容
+        """
+        try:
+            response = requests.post(
+                f"{self.master_url}/api/v1/logs",
+                json={
+                    "task_id": task_id,
+                    "log_level": log_level,
+                    "log_message": log_message
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            if data["code"] == 201:
+                logging.debug(f"日志已更新: {log_message}")
+                return True
+            else:
+                logging.error(f"更新日志失败: 服务器返回错误 - code: {data.get('code')}, message: {data.get('message')}")
+                return False
+        except requests.exceptions.RequestException as e:
+            logging.error(f"更新日志失败: 网络错误 - {str(e)}")
+            if hasattr(e.response, 'text'):
+                logging.error(f"服务器响应: {e.response.text}")
+            return False
+        except Exception as e:
+            logging.error(f"更新日志失败: 未知错误 - {str(e)}")
+            return False

@@ -35,10 +35,12 @@ class Worker(BasicWorker):
             video_path = self._get_full_video_path(task["video_path"])
             logging.info(f"视频完整路径: {video_path}")
             
-            # 创建必要的目录
-            self.tmp_path = os.path.join(self.prefix_path,self.tmp_path,os.path.dirname(task["video_path"]))
-            os.makedirs(self.tmp_path, exist_ok=True)
-            logging.info(f"临时目录: {self.tmp_path}")
+            # 创建临时目录
+            # 使用原始的tmp_path和视频的相对路径来构建临时目录
+            video_rel_dir = os.path.dirname(task["video_path"])
+            task_tmp_path = os.path.normpath(os.path.join(self.prefix_path, self.tmp_path, video_rel_dir))
+            os.makedirs(task_tmp_path, exist_ok=True)
+            logging.info(f"临时目录: {task_tmp_path}")
             
             # 创建日志目录
             log_dir = "logs"
@@ -61,7 +63,7 @@ class Worker(BasicWorker):
             logging.info("任务状态已更新为运行中")
             
             # 处理任务
-            success = self._process_transcode_task(video, task, start_time)
+            success = self._process_transcode_task(video, task, start_time, task_tmp_path)
                 
             return success
                 
@@ -81,7 +83,7 @@ class Worker(BasicWorker):
             logging.warning("继续等待下一个任务...")
             return False
 
-    def _process_transcode_task(self, video: Video, task: dict, start_time: float):
+    def _process_transcode_task(self, video: Video, task: dict, start_time: float, task_tmp_path: str):
         """处理转码任务"""
         logging.info(f"开始转码任务: {'VR视频' if video.is_vr else '普通视频'}")
         
@@ -144,8 +146,8 @@ class Worker(BasicWorker):
             
             # 设置输出路径
             codec_params['output_path'] = os.path.join(
-                self.tmp_path, 
-                video.video_name if not os.path.dirname(video.video_path) == self.tmp_path 
+                task_tmp_path, 
+                video.video_name if not os.path.dirname(video.video_path) == task_tmp_path 
                 else video.video_name_noext + "_h265.mp4"
             )
             
@@ -163,22 +165,22 @@ class Worker(BasicWorker):
             video.convert_video_with_progress(cmd, progress_callback)
 
             # 转码完成后的处理
-            self._handle_completion(video, task, start_time)
+            self._handle_completion(video, task, start_time, task_tmp_path)
             return True
             
         except Exception as e:
             raise e
 
-    def _handle_completion(self, video: Video, task: dict, start_time: float):
+    def _handle_completion(self, video: Video, task: dict, start_time: float, task_tmp_path: str):
         """处理转码完成后的操作"""
         logging.info("开始处理转码完成后的操作")
         
         # 获取临时文件路径
         # 只有当临时目录和原视频在同一目录时才添加_h265后缀
-        if os.path.dirname(video.video_path) == self.tmp_path:
-            temp_output = os.path.join(self.tmp_path, video.video_name_noext + "_h265.mp4")
+        if os.path.dirname(video.video_path) == task_tmp_path:
+            temp_output = os.path.join(task_tmp_path, video.video_name_noext + "_h265.mp4")
         else:
-            temp_output = os.path.join(self.tmp_path, video.video_name)
+            temp_output = os.path.join(task_tmp_path, video.video_name)
         logging.info(f"临时文件路径: {temp_output}")
         
         if self.save_path == "!replace":
@@ -271,10 +273,13 @@ if __name__ == "__main__":
     # 转换时间格式
     start_time = None
     end_time = None
-    if args.start and args.end:
+    if args.start or args.end:
+        if not (args.start and args.end):
+            parser.error("start和end参数必须同时提供")
         try:
             start_time = datetime.strptime(args.start, "%H:%M").time()
             end_time = datetime.strptime(args.end, "%H:%M").time()
+            logging.info(f"工作时间设置为: {start_time.strftime('%H:%M')} - {end_time.strftime('%H:%M')}")
         except ValueError as e:
             parser.error(f"时间格式错误: {str(e)}")
 

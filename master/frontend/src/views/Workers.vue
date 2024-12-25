@@ -64,23 +64,80 @@
         </div>
       </div>
     </div>
+
+    <!-- 分页 -->
+    <div class="mt-4 flex items-center justify-between">
+      <div class="flex items-center">
+        <label class="mr-2 text-sm text-gray-700 dark:text-gray-300">每页显示:</label>
+        <select
+          v-model="pagination.per_page"
+          class="input w-20"
+        >
+          <option :value="10">10</option>
+          <option :value="20">20</option>
+          <option :value="50">50</option>
+          <option :value="100">100</option>
+        </select>
+      </div>
+      
+      <div class="flex items-center space-x-2">
+        <button
+          class="btn-secondary"
+          :disabled="!pagination.has_prev"
+          @click="pagination.current_page--"
+        >
+          上一页
+        </button>
+        <span class="text-sm text-gray-700 dark:text-gray-300">
+          第 {{ pagination.current_page }}/{{ pagination.pages }} 页
+          (共 {{ pagination.total }} 条)
+        </span>
+        <button
+          class="btn-secondary"
+          :disabled="!pagination.has_next"
+          @click="pagination.current_page++"
+        >
+          下一页
+        </button>
+      </div>
+    </div>
   </AppLayout>
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import dayjs from 'dayjs'
 import AppLayout from '../components/Layout/AppLayout.vue'
 import { useAppStore } from '../stores/app'
 
 const appStore = useAppStore()
 
+const pagination = ref({
+  current_page: 1,
+  per_page: 20,
+  total: 0,
+  pages: 0,
+  has_next: false,
+  has_prev: false
+})
+
 const formatDate = (date) => {
   return dayjs(date).format('YYYY-MM-DD HH:mm:ss')
 }
 
 const refreshWorkers = async () => {
-  await appStore.fetchWorkers()
+  try {
+    const params = {
+      page: pagination.value.current_page,
+      per_page: pagination.value.per_page
+    }
+    const response = await appStore.fetchWorkers(params)
+    if (response?.pagination) {
+      pagination.value = response.pagination
+    }
+  } catch (error) {
+    console.error('Error fetching workers:', error)
+  }
 }
 
 const getWorkerType = (type) => {
@@ -92,6 +149,16 @@ const getWorkerType = (type) => {
   }
   return types[type] || '未知'
 }
+
+watch(
+  [
+    () => pagination.value.per_page,
+    () => pagination.current_page
+  ],
+  () => {
+    refreshWorkers()
+  }
+)
 
 onMounted(async () => {
   await refreshWorkers()
