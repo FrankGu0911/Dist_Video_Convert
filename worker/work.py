@@ -36,10 +36,15 @@ class Worker(BasicWorker):
             logging.info(f"视频完整路径: {video_path}")
             
             # 创建临时目录
-            # 使用原始的tmp_path和视频的相对路径来构建临时目录
-            video_rel_dir = os.path.dirname(task["video_path"])
-            task_tmp_path = os.path.normpath(os.path.join(self.prefix_path, self.tmp_path, video_rel_dir))
-            os.makedirs(task_tmp_path, exist_ok=True)
+            # 如果是替换模式，使用源视频所在目录
+            if self.save_path == "!replace":
+                task_tmp_path = os.path.dirname(video_path)
+                logging.info("替换模式：临时文件将保存在源视频所在目录")
+            else:
+                # 使用原始的tmp_path和视频的相对路径来构建临时目录
+                video_rel_dir = os.path.dirname(task["video_path"])
+                task_tmp_path = os.path.normpath(os.path.join(self.prefix_path, self.tmp_path, video_rel_dir))
+                os.makedirs(task_tmp_path, exist_ok=True)
             logging.info(f"临时目录: {task_tmp_path}")
             
             # 创建日志目录
@@ -258,6 +263,7 @@ if __name__ == "__main__":
     parser.add_argument('--start', help='工作开始时间，格式HH:MM，例如22:00')
     parser.add_argument('--end', help='工作结束时间，格式HH:MM，例如06:00')
     parser.add_argument('--hw-decode', action='store_true', help='是否启用硬件解码（仅NVENC和QSV模式有效）')
+    parser.add_argument('--shutdown', action='store_true', help='任务完成后关机')
 
     # 解析参数
     args = parser.parse_args()
@@ -305,7 +311,15 @@ if __name__ == "__main__":
         )
 
         # 运行worker
-        worker.run()
+        success = worker.run()
+        
+        # 如果正常完成并设置了关机，执行关机
+        if success and args.shutdown:
+            logging.info("任务已完成，准备关机...")
+            if os.name == 'nt':  # Windows
+                os.system('shutdown /s /t 60')  # 60秒后关机
+            else:  # Linux/Unix
+                os.system('shutdown -h +1')  # 1分钟后关机
         
     except KeyboardInterrupt:
         logging.info("收到中断信号，worker正在停止...")

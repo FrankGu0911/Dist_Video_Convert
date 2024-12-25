@@ -52,7 +52,7 @@ class BasicWorker:
             master_url: master地址
             prefix_path: 视频前缀路径
             save_path: 视频保存路径 (!replace表示替换原视频)
-            tmp_path: 临时文件路径，默认为save_path下的tmp目录
+            tmp_path: 临时文件路径，默认在替换模式下与源视频同目录，另存模式下在save_path下的tmp目录
             support_vr: 是否支持VR (cpu可支持，其他类型worker即使为True，也会被忽略)
             crf: 视频质量 (0-51)
                 cpu+vr默认20, cpu+no-vr默认22
@@ -74,7 +74,18 @@ class BasicWorker:
         self.master_url = master_url.rstrip("/")
         self.prefix_path = prefix_path
         self.save_path = save_path
-        self.tmp_path = tmp_path if tmp_path else os.path.join(save_path, "tmp")
+        
+        # 设置临时目录
+        # 如果指定了tmp_path，直接使用
+        # 如果是替换模式，临时目录将在处理任务时动态设置为与源视频相同目录
+        # 如果是另存模式，使用save_path下的tmp目录
+        if tmp_path:
+            self.tmp_path = tmp_path
+        else:
+            if save_path == "!replace":
+                self.tmp_path = ""  # 替换模式下先不设置tmp_path，等处理任务时再设置
+            else:
+                self.tmp_path = os.path.join(save_path, "tmp")
         
         # 如果不是CPU类型但设置了support_vr=True，发出警告并强制设为False
         if worker_type != WorkerType.CPU and support_vr:
@@ -126,6 +137,9 @@ class BasicWorker:
 
         # 设置当前进程为较高优先级，确保网络请求等关键操作不受影响
         self._set_process_priority()
+
+        # 连续失败次数计数
+        self.consecutive_failures = 0
 
     def _set_process_priority(self):
         """设置进程优先级
@@ -394,17 +408,34 @@ class BasicWorker:
                     self.stop_heartbeat()
                     return True
 
-                # 检查是否在工作时间范围内
-                if not self._check_time():
-                    logging.debug("当前不在工作时间范围内")
-                    time.sleep(60)  # 不在工作时间时，每分钟检查一次
-                    continue
+                # 检查连续失败次数
+                if self.consecutive_failures >= 3:
+                    logging.error("连续失败3次，worker强制退出")
+                    self.stop_heartbeat()
+                    return False
+
+                try:
+                    # 检查是否在工作时间范围内
+                    if not self._check_time():
+                        time.sleep(60)  # 不在工作时间时，每分钟检查一次
+                        continue
+                except RuntimeError as e:
+                    # 如果已经超过结束时间，记录日志并退出
+                    logging.info(str(e))
+                    logging.info("已超过工作时间，worker退出")
+                    self.stop_heartbeat()
+                    return True
 
                 if self.status == WorkerStatus.PENDING:
                     task = self.get_new_task()
                     if task:
                         try:
-                            self.process_task(task)
+                            success = self.process_task(task)
+                            if success:
+                                self.consecutive_failures = 0  # 成功时重置失败计数
+                            else:
+                                self.consecutive_failures += 1  # 失败时增加计数
+                                logging.warning(f"任务失败，当前连续失败次数: {self.consecutive_failures}")
                         except FileNotFoundError as e:
                             logging.error(str(e))
                             self.update_task_status(
@@ -415,9 +446,12 @@ class BasicWorker:
                                 elapsed_time=0,
                                 remaining_time=0
                             )
-                            logging.error("由于文件访问错误，worker停止运行")
-                            self.stop_heartbeat()
-                            return False
+                            self.consecutive_failures += 1
+                            logging.warning(f"文件访问错误，当前连续失败次数: {self.consecutive_failures}")
+                            if self.consecutive_failures >= 3:
+                                logging.error("由于连续失败3次，worker停止运行")
+                                self.stop_heartbeat()
+                                return False
                     elif self.num != -1:  # 如果有转码次数限制，且没有新任务，等待一段时间后重试
                         logging.info(f"没有新任务，已完成 {self.completed_num}/{self.num} 个转码任务")
                         time.sleep(5)
@@ -448,22 +482,54 @@ class BasicWorker:
         return full_path
 
     def _check_time(self) -> bool:
-        """检查当前时间是否在工作时间范围内"""
+        """检查当前时间是否在工作时间范围内
+        
+        Returns:
+            bool: 如果在工作时间内返回True
+                 如果不在工作时间内但还未到开始时间返回False
+                 如果已经超过结束时间则抛出RuntimeError
+        
+        Raises:
+            RuntimeError: 当当前时间已超过结束时间时抛出
+        """
         if not self.start_time or not self.end_time:
             return True
 
         current_time = datetime.now().time()
         
+        # 特殊处理结束时间为00:00的情况
+        if self.end_time.hour == 0 and self.end_time.minute == 0:
+            # 将结束时间视为23:59:59
+            end_time = Time(23, 59, 59)
+        else:
+            end_time = self.end_time
+            
         # 处理跨天的情况 (如22:00-06:00)
-        if self.start_time > self.end_time:
+        if self.start_time > end_time:
             # 如果当前时间大于等于开始时间或小于等于结束时间，则在工作时间内
             in_work_time = current_time >= self.start_time or current_time <= self.end_time
+            # 如果不在工作时间内，检查是否已过结束时间
+            if not in_work_time:
+                if current_time > self.end_time and current_time < self.start_time:
+                    logging.info(f"当前时间 {current_time.strftime('%H:%M')} 不在工作时间范围内 ({self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')})")
+                    logging.info("等待工作时间开始...")
+                else:
+                    raise RuntimeError(f"当前时间 {current_time.strftime('%H:%M')} 已超过工作时间 ({self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')})")
         else:
             # 如果当前时间在开始时间和结束时间之间，则在工作时间内
-            in_work_time = self.start_time <= current_time <= self.end_time
-            
-        if not in_work_time:
-            logging.info(f"当前时间 {current_time.strftime('%H:%M')} 不在工作时间范围内 ({self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')})")
+            if self.end_time.hour == 0 and self.end_time.minute == 0:
+                # 对于结束时间是00:00的情况，特殊处理
+                in_work_time = current_time >= self.start_time
+            else:
+                in_work_time = self.start_time <= current_time <= end_time
+                
+            # 如果不在工作时间内，检查是否已过结束时间
+            if not in_work_time:
+                if current_time < self.start_time:
+                    logging.info(f"当前时间 {current_time.strftime('%H:%M')} 不在工作时间范围内 ({self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')})")
+                    logging.info("等待工作时间开始...")
+                else:
+                    raise RuntimeError(f"当前时间 {current_time.strftime('%H:%M')} 已超过工作时间 ({self.start_time.strftime('%H:%M')} - {self.end_time.strftime('%H:%M')})")
         
         return in_work_time
 
