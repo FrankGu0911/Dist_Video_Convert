@@ -134,7 +134,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, reactive } from 'vue'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import timezone from 'dayjs/plugin/timezone'
@@ -171,15 +171,15 @@ const logLevels = [
   }
 ]
 
-const filters = ref({
-  log_level: [], // 改为数组以支持多选
-  start_time: '',
-  end_time: '',
+const filters = reactive({
+  log_level: [],
+  start_time: null,
+  end_time: null,
   sort_by: 'log_time',
   order: 'desc'
 })
 
-const pagination = ref({
+const pagination = reactive({
   current_page: 1,
   per_page: 20,
   total: 0,
@@ -211,9 +211,9 @@ const getLogLevelClass = (level) => {
 const refreshLogs = async () => {
   try {
     const params = {
-      page: pagination.value.current_page,
-      per_page: pagination.value.per_page,
-      ...filters.value
+      page: pagination.current_page,
+      per_page: pagination.per_page,
+      ...filters
     }
     
     // 清除空值
@@ -225,26 +225,50 @@ const refreshLogs = async () => {
 
     const response = await apiService.getLogs(params)
     appStore.logs = response.logs
-    pagination.value = response.pagination
+    pagination.total = response.total
+    pagination.pages = response.pages
+    pagination.has_next = response.has_next
+    pagination.has_prev = response.has_prev
   } catch (error) {
     console.error('Error fetching logs:', error)
   }
 }
 
-watch(
-  [
-    () => filters.value.log_level,
-    () => filters.value.start_time,
-    () => filters.value.end_time,
-    () => filters.value.sort_by,
-    () => filters.value.order,
-    () => pagination.value.per_page,
-    () => pagination.value.current_page
-  ],
-  () => {
-    refreshLogs()
-  }
-)
+// 监听筛选条件的变化
+watch(() => filters.log_level, () => {
+  pagination.current_page = 1;  // 重置页码为1
+  refreshLogs();
+}, { deep: true })
+
+watch(() => filters.start_time, () => {
+  pagination.current_page = 1;
+  refreshLogs();
+})
+
+watch(() => filters.end_time, () => {
+  pagination.current_page = 1;
+  refreshLogs();
+})
+
+watch(() => filters.sort_by, () => {
+  pagination.current_page = 1;
+  refreshLogs();
+})
+
+watch(() => filters.order, () => {
+  pagination.current_page = 1;
+  refreshLogs();
+})
+
+watch(() => pagination.per_page, () => {
+  pagination.current_page = 1;
+  refreshLogs();
+})
+
+// 监听页码变化
+watch(() => pagination.current_page, () => {
+  refreshLogs();
+})
 
 onMounted(async () => {
   await refreshLogs()

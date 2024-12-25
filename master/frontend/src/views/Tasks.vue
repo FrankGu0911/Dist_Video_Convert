@@ -252,7 +252,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, onUnmounted } from 'vue'
+import { ref, onMounted, watch, onUnmounted, reactive } from 'vue'
 import dayjs from 'dayjs'
 import {
   Dialog,
@@ -358,13 +358,13 @@ const taskStatuses = [
   }
 ]
 
-const filters = ref({
+const filters = reactive({
   status: [],
   sort_by: 'start_time',
   order: 'desc'
 })
 
-const pagination = ref({
+const pagination = reactive({
   current_page: 1,
   per_page: 20,
   total: 0,
@@ -376,23 +376,26 @@ const pagination = ref({
 const refreshTasks = async () => {
   try {
     const params = {
-      page: pagination.value.current_page,
-      per_page: pagination.value.per_page
+      page: pagination.current_page,
+      per_page: pagination.per_page
     }
     
-    if (filters.value.status?.length) {
-      params.status = filters.value.status
+    if (filters.status?.length) {
+      params.status = filters.status
     }
-    if (filters.value.sort_by) {
-      params.sort_by = filters.value.sort_by
-      params.order = filters.value.order
+    if (filters.sort_by) {
+      params.sort_by = filters.sort_by
+      params.order = filters.order
     }
 
     const tasksResponse = await apiService.getTasks(params)
     if (tasksResponse?.tasks) {
       appStore.tasks = tasksResponse.tasks
       if (tasksResponse.pagination) {
-        pagination.value = tasksResponse.pagination
+        pagination.total = tasksResponse.pagination.total
+        pagination.pages = tasksResponse.pagination.pages
+        pagination.has_next = tasksResponse.pagination.has_next
+        pagination.has_prev = tasksResponse.pagination.has_prev
       }
 
       // 订阅所有运行中的任务
@@ -411,18 +414,31 @@ const refreshTasks = async () => {
   }
 }
 
-watch(
-  [
-    () => filters.value.status,
-    () => filters.value.sort_by,
-    () => filters.value.order,
-    () => pagination.value.per_page,
-    () => pagination.value.current_page
-  ],
-  () => {
-    refreshTasks()
-  }
-)
+// 监听筛选条件的变化
+watch(() => filters.status, () => {
+  pagination.current_page = 1;  // 重置页码为1
+  refreshTasks();
+}, { deep: true })
+
+watch(() => filters.sort_by, () => {
+  pagination.current_page = 1;  // 重置页码为1
+  refreshTasks();
+})
+
+watch(() => filters.order, () => {
+  pagination.current_page = 1;  // 重置页码为1
+  refreshTasks();
+})
+
+watch(() => pagination.per_page, () => {
+  pagination.current_page = 1;  // 重置页码为1
+  refreshTasks();
+})
+
+// 监听页码变化
+watch(() => pagination.current_page, () => {
+  refreshTasks();
+})
 
 onMounted(async () => {
   await refreshTasks()

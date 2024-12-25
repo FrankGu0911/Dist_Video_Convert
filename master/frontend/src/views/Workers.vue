@@ -112,6 +112,12 @@ import { useAppStore } from '../stores/app'
 
 const appStore = useAppStore()
 
+const filters = ref({
+  status: [],
+  sort_by: 'last_heartbeat',
+  order: 'desc'
+})
+
 const pagination = ref({
   current_page: 1,
   per_page: 20,
@@ -150,15 +156,29 @@ const getWorkerType = (type) => {
   return types[type] || '未知'
 }
 
-watch(
-  [
-    () => pagination.value.per_page,
-    () => pagination.current_page
-  ],
-  () => {
-    refreshWorkers()
-  }
-)
+watch(() => filters.status, () => {
+  pagination.current_page = 1;
+  refreshWorkers();
+}, { deep: true })
+
+watch(() => filters.sort_by, () => {
+  pagination.current_page = 1;
+  refreshWorkers();
+})
+
+watch(() => filters.order, () => {
+  pagination.current_page = 1;
+  refreshWorkers();
+})
+
+watch(() => pagination.per_page, () => {
+  pagination.current_page = 1;
+  refreshWorkers();
+})
+
+watch(() => pagination.current_page, () => {
+  refreshWorkers();
+})
 
 onMounted(async () => {
   await refreshWorkers()
