@@ -6,3 +6,8 @@ python -m worker.work --name 2080_2 --type nvenc --master http://192.168.3.13:53
 
 REM for linux nvidia, mount hdd to /mnt/hdd first
 python -m worker.work --name 2080_2 --type nvenc --master http://192.168.3.13:5333 --prefix /mnt --save hdd/ad_video/transcode --crf 22 --preset p5 --num 1
+
+REM for 2640v4x2 + tesla p4
+python -m worker.work --name 2640v4_1 --type cpu --master http://192.168.3.13:5333 --prefix /mnt --save hdd/ad_video/transcode --vr --crf 20 --preset slow --numa -,+ --start 22:00 --end 06:00
+python -m worker.work --name 2640v4_2 --type cpu --master http://192.168.3.13:5333 --prefix /mnt --save hdd/ad_video/transcode --vr --crf 20 --preset slow --numa -,+ --start 22:00 --end 06:00
+python -m worker.work --name tesla_p4_1 --type nvenc --master http://192.168.3.13:5333 --prefix /mnt --save hdd/ad_video/transcode --crf 22 --preset p6 ----hw-decode  --start 22:00 --end 06:00
