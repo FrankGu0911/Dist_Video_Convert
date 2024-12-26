@@ -7,12 +7,6 @@ from datetime import datetime
 from .base import BasicWorker, WorkerType, TaskStatus
 from video import Video
 import re
-import shlex  # 添加shlex模块用于处理命令行参数
-
-class CustomArgumentParser(argparse.ArgumentParser):
-    """自定义参数解析器，用于处理包含特殊字符的参数"""
-    def convert_arg_line_to_args(self, arg_line):
-        return shlex.split(arg_line, comments=True)
 
 class Worker(BasicWorker):
     def __init__(self, worker_name: str, worker_type: WorkerType, master_url: str, prefix_path: str, save_path: str, tmp_path: str = None, support_vr: bool = False, crf: int = None, preset: str = None, rate: int = None, numa_param: str = None, remove_original: bool = False, num: int = -1, start_time=None, end_time=None, hw_decode: bool = False):
@@ -249,7 +243,7 @@ if __name__ == "__main__":
     )
 
     # 创建参数解析器
-    parser = CustomArgumentParser(description='视频转码Worker')
+    parser = argparse.ArgumentParser(description='视频转码Worker')
     
     # 必需参数
     parser.add_argument('--name', required=True, help='worker名称')
@@ -264,7 +258,7 @@ if __name__ == "__main__":
     parser.add_argument('--crf', type=int, help='视频质量(0-51)')
     parser.add_argument('--preset', help='转码预设')
     parser.add_argument('--rate', type=int, choices=[30, 60], help='输出帧率')
-    parser.add_argument('--numa', metavar='NUMA_CONFIG', help='NUMA参数，例如-,+或-,-,+,-（不需要引号）')
+    parser.add_argument('--numa', type=str, help='NUMA参数，使用下划线分隔，例如"-_+"或"-_-_+_-"')
     parser.add_argument('--remove', action='store_true', help='是否删除原始文件')
     parser.add_argument('--num', type=int, default=-1, help='转码数量限制，默认-1表示不限制')
     parser.add_argument('--start', help='工作开始时间，格式HH:MM，例如22:00')
@@ -277,9 +271,11 @@ if __name__ == "__main__":
     
     # 验证numa参数格式
     if args.numa:
-        numa_pattern = r'^[-+,]+$'
+        numa_pattern = r'^[-+_]+$'
         if not re.match(numa_pattern, args.numa):
-            parser.error('NUMA参数格式错误，应该只包含-、+和,，例如-,+或-,-,+,-')
+            parser.error('NUMA参数格式错误，应该只包含"-"、"+"和"_"，例如"-_+"或"-_-_+_-"')
+        # 将下划线转换为逗号
+        args.numa = args.numa.replace('_', ',')
 
     # 转换worker类型
     worker_type_map = {
