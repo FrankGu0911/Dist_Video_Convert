@@ -258,7 +258,7 @@ if __name__ == "__main__":
     parser.add_argument('--crf', type=int, help='视频质量(0-51)')
     parser.add_argument('--preset', help='转码预设')
     parser.add_argument('--rate', type=int, choices=[30, 60], help='输出帧率')
-    parser.add_argument('--numa', type=str, help='NUMA参数，使用下划线分隔，例如"-_+"或"-_-_+_-"')
+    parser.add_argument('--numa', metavar='PATTERN', help='NUMA参数，使用0和1表示，例如"010"表示第二个核心启用')
     parser.add_argument('--remove', action='store_true', help='是否删除原始文件')
     parser.add_argument('--num', type=int, default=-1, help='转码数量限制，默认-1表示不限制')
     parser.add_argument('--start', help='工作开始时间，格式HH:MM，例如22:00')
@@ -269,13 +269,13 @@ if __name__ == "__main__":
     # 解析参数
     args = parser.parse_args()
     
-    # 验证numa参数格式
+    # 验证并转换numa参数格式
     if args.numa:
-        numa_pattern = r'^[-+_]+$'
+        numa_pattern = r'^[01]+$'
         if not re.match(numa_pattern, args.numa):
-            parser.error('NUMA参数格式错误，应该只包含"-"、"+"和"_"，例如"-_+"或"-_-_+_-"')
-        # 将下划线转换为逗号
-        args.numa = args.numa.replace('_', ',')
+            parser.error('NUMA参数格式错误，应该只包含0和1，例如"010"表示第二个核心启用')
+        # 将0和1转换为-和+
+        args.numa = ','.join('-' if x == '0' else '+' for x in args.numa)
 
     # 转换worker类型
     worker_type_map = {
