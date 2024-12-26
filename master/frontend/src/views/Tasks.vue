@@ -187,7 +187,7 @@
                         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400 break-all">{{ selectedTask?.dest_path }}</p>
                       </div>
                       <div>
-                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">处理时间</label>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">处理��间</label>
                         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                           已用时间: {{ formatTime(selectedTask?.elapsed_time) }}
                           <br>
@@ -288,8 +288,13 @@ const getTaskStatus = (status) => {
 
 const formatTime = (seconds) => {
   if (!seconds) return '-'
-  const minutes = Math.floor(seconds / 60)
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
   const remainingSeconds = seconds % 60
+  
+  if (hours > 0) {
+    return `${hours}时${minutes}分${remainingSeconds}秒`
+  }
   return `${minutes}分${remainingSeconds}秒`
 }
 
