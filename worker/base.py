@@ -72,20 +72,18 @@ class BasicWorker:
         self.name = worker_name
         self.worker_type = worker_type
         self.master_url = master_url.rstrip("/")
-        self.prefix_path = prefix_path
-        self.save_path = save_path
+        # 规范化路径
+        self.prefix_path = self._normalize_path(prefix_path)
+        self.save_path = save_path  # !replace 不需要处理
         
         # 设置临时目录
-        # 如果指定了tmp_path，直接使用
-        # 如果是替换模式，临时目录将在处理任务时动态设置为与源视频相同目录
-        # 如果是另存模式，使用save_path下的tmp目录
         if tmp_path:
-            self.tmp_path = tmp_path
+            self.tmp_path = self._normalize_path(tmp_path)
         else:
             if save_path == "!replace":
                 self.tmp_path = ""  # 替换模式下先不设置tmp_path，等处理任务时再设置
             else:
-                self.tmp_path = os.path.join(save_path, "tmp")
+                self.tmp_path = self._normalize_path(os.path.join(save_path, "tmp"))
         
         # 如果不是CPU类型但设置了support_vr=True，发出警告并强制设为False
         if worker_type != WorkerType.CPU and support_vr:
@@ -165,7 +163,7 @@ class BasicWorker:
             else:  # Linux/Unix系统
                 # Linux下设置nice值为-10（范围-20到19，默认0，越小优先级越高）
                 process.nice(-10)
-                logging.info("已将worker进程nice值设置为-10")
+                logging.info("���将worker进程nice值设置为-10")
         except Exception as e:
             logging.warning(f"设置进程优先级失败: {str(e)}")
 
@@ -464,6 +462,32 @@ class BasicWorker:
         finally:
             self.stop_heartbeat()
 
+    def _normalize_path(self, path: str) -> str:
+        """根据操作系统规范化路径
+        
+        Args:
+            path: 原始路径
+            
+        Returns:
+            str: 规范化后的路径
+        """
+        if os.name == 'nt':
+            # Windows系统下的处理
+            # 检查是否是UNC路径（以//或\\开头）
+            if path.startswith('//') or path.startswith('\\\\'):
+                # 确保UNC路径以\\开头
+                normalized = '\\\\' + path.lstrip('/\\')
+            else:
+                # 普通路径使用os.path.normpath处理
+                normalized = os.path.normpath(path)
+            # Windows下统一使用反斜杠
+            return normalized.replace('/', '\\')
+        else:
+            # Linux/Unix系统下的处理
+            normalized = os.path.normpath(path)
+            # Linux下统一使用正斜杠
+            return normalized.replace('\\', '/')
+
     def _get_full_video_path(self, video_path: str) -> str:
         """获取完整的视频文件路径
         
@@ -476,7 +500,7 @@ class BasicWorker:
         Raises:
             FileNotFoundError: 如果文件不存在
         """
-        full_path = os.path.join(self.prefix_path, video_path)
+        full_path = self._normalize_path(os.path.join(self.prefix_path, video_path))
         if not os.path.exists(full_path):
             raise FileNotFoundError(f"视频文件不存在: {full_path}")
         return full_path

@@ -38,12 +38,12 @@ class Worker(BasicWorker):
             # 创建临时目录
             # 如果是替换模式，使用源视频所在目录
             if self.save_path == "!replace":
-                task_tmp_path = os.path.dirname(video_path)
+                task_tmp_path = self._normalize_path(os.path.dirname(video_path))
                 logging.info("替换模式：临时文件将保存在源视频所在目录")
             else:
                 # 使用原始的tmp_path和视频的相对路径来构建临时目录
                 video_rel_dir = os.path.dirname(task["video_path"])
-                task_tmp_path = os.path.normpath(os.path.join(self.prefix_path, self.tmp_path, video_rel_dir))
+                task_tmp_path = self._normalize_path(os.path.join(self.prefix_path, self.tmp_path, video_rel_dir))
                 os.makedirs(task_tmp_path, exist_ok=True)
             logging.info(f"临时目录: {task_tmp_path}")
             
@@ -150,11 +150,12 @@ class Worker(BasicWorker):
                 raise ValueError(f"不支持的worker类型: {self.worker_type}")
             
             # 设置输出路径
-            codec_params['output_path'] = os.path.join(
+            output_path = os.path.join(
                 task_tmp_path, 
                 video.video_name if not os.path.dirname(video.video_path) == task_tmp_path 
                 else video.video_name_noext + "_h265.mp4"
             )
+            codec_params['output_path'] = self._normalize_path(output_path)
             
             # 获取ffmpeg命令
             cmd = video.build_ffmpeg_command(codec_params)
@@ -181,16 +182,15 @@ class Worker(BasicWorker):
         logging.info("开始处理转码完成后的操作")
         
         # 获取临时文件路径
-        # 只有当临时目录和原视频在同一目录时才添加_h265后缀
         if os.path.dirname(video.video_path) == task_tmp_path:
-            temp_output = os.path.join(task_tmp_path, video.video_name_noext + "_h265.mp4")
+            temp_output = self._normalize_path(os.path.join(task_tmp_path, video.video_name_noext + "_h265.mp4"))
         else:
-            temp_output = os.path.join(task_tmp_path, video.video_name)
+            temp_output = self._normalize_path(os.path.join(task_tmp_path, video.video_name))
         logging.info(f"临时文件路径: {temp_output}")
         
         if self.save_path == "!replace":
             logging.info("使用替换模式")
-            backup_path = video.video_path + ".bak"
+            backup_path = self._normalize_path(video.video_path + ".bak")
             logging.info(f"备份原文件到: {backup_path}")
             os.rename(video.video_path, backup_path)
             logging.info(f"移动新文件到: {video.video_path}")
@@ -200,12 +200,12 @@ class Worker(BasicWorker):
                 os.remove(backup_path)
         else:
             logging.info("使用另存模式")
-            rel_path = video.video_path[len(self.prefix_path):]
-            if rel_path.startswith('\\'):
+            rel_path = os.path.normpath(video.video_path[len(self.prefix_path):])
+            if rel_path.startswith(os.path.sep):
                 rel_path = rel_path[1:]
                 
-            save_dir = os.path.join(self.prefix_path, self.save_path, os.path.dirname(rel_path))
-            save_path = os.path.join(save_dir, video.video_name)
+            save_dir = self._normalize_path(os.path.join(self.prefix_path, self.save_path, os.path.dirname(rel_path)))
+            save_path = self._normalize_path(os.path.join(save_dir, video.video_name))
             
             logging.info(f"创建目标目录: {save_dir}")
             os.makedirs(save_dir, exist_ok=True)
@@ -241,7 +241,7 @@ if __name__ == "__main__":
         ]
     )
 
-    # 创建参数解析器
+    # 创建参数��析器
     parser = argparse.ArgumentParser(description='视频转码Worker')
     
     # 必需参数
