@@ -187,7 +187,7 @@
                         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400 break-all">{{ selectedTask?.dest_path }}</p>
                       </div>
                       <div>
-                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">处理��间</label>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">处理时间</label>
                         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                           已用时间: {{ formatTime(selectedTask?.elapsed_time) }}
                           <br>

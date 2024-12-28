@@ -32,7 +32,7 @@ def init_app(app):
             engineio_logger=logger  # 同样用于engineio的日志
         )
         
-        # WebSocket事件处��
+        # WebSocket事件处理
         @socketio.on('connect')
         def handle_connect():
             logger.info('Client connected')
