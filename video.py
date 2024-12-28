@@ -225,6 +225,7 @@ class Video:
                 - rate: 帧率
                 - extra_params: 额外的编码参数字典
                 - hw_decode: 是否启用硬件解码，默认False
+                - ffmpeg_path: ffmpeg可执行文件路径，默认为'ffmpeg'
         
         Returns:
             str: 完整的ffmpeg命令
@@ -232,18 +233,19 @@ class Video:
         codec = codec_params['codec']
         output_path = codec_params['output_path']
         hw_decode = codec_params.get('hw_decode', False)
+        ffmpeg_path = codec_params.get('ffmpeg_path', 'ffmpeg')
         
         # 根据编码器和硬件解码设置选择解码参数
         if hw_decode:
             if codec == 'hevc_nvenc':
-                base_cmd = 'ffmpeg -y -hwaccel cuda -hwaccel_output_format cuda -i "%s"' % self.video_path
+                base_cmd = '%s -y -hwaccel cuda -hwaccel_output_format cuda -i "%s"' % (ffmpeg_path, self.video_path)
             elif codec == 'hevc_qsv':
-                base_cmd = 'ffmpeg -y -hwaccel qsv -i "%s"' % self.video_path
+                base_cmd = '%s -y -hwaccel qsv -i "%s"' % (ffmpeg_path, self.video_path)
             else:
                 logging.warning("使用CPU编码时不建议启用硬件解码，将使用软解码")
-                base_cmd = 'ffmpeg -y -i "%s"' % self.video_path
+                base_cmd = '%s -y -i "%s"' % (ffmpeg_path, self.video_path)
         else:
-            base_cmd = 'ffmpeg -y -i "%s"' % self.video_path
+            base_cmd = '%s -y -i "%s"' % (ffmpeg_path, self.video_path)
         
         # 编码器特定参数
         encode_params = []

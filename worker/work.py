@@ -9,8 +9,8 @@ from video import Video
 import re
 
 class Worker(BasicWorker):
-    def __init__(self, worker_name: str, worker_type: WorkerType, master_url: str, prefix_path: str, save_path: str, tmp_path: str = None, support_vr: bool = False, crf: int = None, preset: str = None, rate: int = None, numa_param: str = None, remove_original: bool = False, num: int = -1, start_time=None, end_time=None, hw_decode: bool = False):
-        super().__init__(worker_name, worker_type, master_url, prefix_path, save_path, tmp_path, support_vr, crf, preset, rate, numa_param, None, remove_original, num, start_time, end_time, hw_decode)
+    def __init__(self, worker_name: str, worker_type: WorkerType, master_url: str, prefix_path: str, save_path: str, tmp_path: str = None, support_vr: bool = False, crf: int = None, preset: str = None, rate: int = None, numa_param: str = None, remove_original: bool = False, num: int = -1, start_time=None, end_time=None, hw_decode: bool = False, ffmpeg_path: str = None):
+        super().__init__(worker_name, worker_type, master_url, prefix_path, save_path, tmp_path, support_vr, crf, preset, rate, numa_param, None, remove_original, num, start_time, end_time, hw_decode, ffmpeg_path)
 
     def process_task(self, task):
         """处理转码任务
@@ -125,7 +125,8 @@ class Worker(BasicWorker):
                     'preset': self.preset,
                     'rate': rate_str,
                     'numa_param': self.numa_param,
-                    'hw_decode': self.hw_decode
+                    'hw_decode': self.hw_decode,
+                    'ffmpeg_path': self.ffmpeg_path
                 }
             elif self.worker_type == WorkerType.NVENC:
                 codec = 'hevc_nvenc'
@@ -135,7 +136,8 @@ class Worker(BasicWorker):
                     'qmin': self.crf,
                     'preset': self.preset,
                     'rate': rate_value,
-                    'hw_decode': self.hw_decode
+                    'hw_decode': self.hw_decode,
+                    'ffmpeg_path': self.ffmpeg_path
                 }
             elif self.worker_type == WorkerType.QSV:
                 codec = 'hevc_qsv'
@@ -145,7 +147,8 @@ class Worker(BasicWorker):
                     'global_quality': self.crf,
                     'preset': self.preset,
                     'rate': rate_str,
-                    'hw_decode': self.hw_decode
+                    'hw_decode': self.hw_decode,
+                    'ffmpeg_path': self.ffmpeg_path
                 }
             else:
                 raise ValueError(f"不支持的worker类型: {self.worker_type}")
@@ -265,6 +268,7 @@ if __name__ == "__main__":
     parser.add_argument('--end', help='工作结束时间，格式HH:MM，例如06:00')
     parser.add_argument('--hw-decode', action='store_true', help='是否启用硬件解码（仅NVENC和QSV模式有效）')
     parser.add_argument('--shutdown', action='store_true', help='任务完成后关机')
+    parser.add_argument('--ffmpeg', help='ffmpeg可执行文件路径，如果不指定则直接使用ffmpeg命令')
 
     # 解析参数
     args = parser.parse_args()
@@ -316,7 +320,8 @@ if __name__ == "__main__":
             num=args.num,
             start_time=start_time,
             end_time=end_time,
-            hw_decode=args.hw_decode
+            hw_decode=args.hw_decode,
+            ffmpeg_path=args.ffmpeg
         )
 
         # 运行worker

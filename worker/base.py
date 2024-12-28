@@ -44,7 +44,8 @@ class BasicWorker:
                  num: int = -1,
                  start_time: Optional[Time] = None,
                  end_time: Optional[Time] = None,
-                 hw_decode: bool = False):
+                 hw_decode: bool = False,
+                 ffmpeg_path: Optional[str] = None):
         """初始化worker
         Args:
             worker_name: worker名称
@@ -68,6 +69,7 @@ class BasicWorker:
             start_time: 工作开始时间
             end_time: 工作结束时间
             hw_decode: 是否启用硬件解码 (对于CPU编码器会被忽略)
+            ffmpeg_path: ffmpeg可执行文件路径 (如果不指定则直接使用ffmpeg命令)
         """
         self.name = worker_name
         self.worker_type = worker_type
@@ -132,6 +134,9 @@ class BasicWorker:
             self.hw_decode = False
         else:
             self.hw_decode = hw_decode
+            
+        # ffmpeg路径设置
+        self.ffmpeg_path = self._normalize_path(ffmpeg_path) if ffmpeg_path else "ffmpeg"
 
         # 设置当前进程为较高优先级，确保网络请求等关键操作不受影响
         self._set_process_priority()
@@ -163,7 +168,7 @@ class BasicWorker:
             else:  # Linux/Unix系统
                 # Linux下设置nice值为-10（范围-20到19，默认0，越小优先级越高）
                 process.nice(-10)
-                logging.info("���将worker进程nice值设置为-10")
+                logging.info("已将worker进程nice值设置为-10")
         except Exception as e:
             logging.warning(f"设置进程优先级失败: {str(e)}")
 
