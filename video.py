@@ -210,6 +210,67 @@ class Video:
             output_path = os.path.join(output_folder, self.video_name)
         return output_path
 
+    @staticmethod
+    def check_nvidia_capabilities():
+        """检查NVIDIA显卡的架构和能力
+        
+        Returns:
+            dict: 包含显卡信息的字典，包括：
+                - arch: 架构代号（如 Pascal, Turing, Ampere 等）
+                - supports_b_ref: 是否支持 b_ref_mode
+                - supports_aq: 是否支持自适应量化
+        """
+        try:
+            import subprocess
+            result = subprocess.run(['nvidia-smi', '--query-gpu=gpu_name,compute_cap', '--format=csv,noheader'], 
+                                 capture_output=True, text=True)
+            if result.returncode != 0:
+                logging.warning("无法获取NVIDIA显卡信息，将使用基本特性")
+                return {'arch': 'unknown', 'supports_b_ref': False, 'supports_aq': False}
+            
+            # 解析输出
+            gpu_info = result.stdout.strip().split(',')
+            if len(gpu_info) < 2:
+                logging.warning("无法解析NVIDIA显卡信息，将使用基本特性")
+                return {'arch': 'unknown', 'supports_b_ref': False, 'supports_aq': False}
+            
+            gpu_name = gpu_info[0].strip()
+            compute_cap = gpu_info[1].strip()
+            
+            # 根据计算能力判断架构
+            # 参考：https://developer.nvidia.com/cuda-gpus
+            compute_cap = float(compute_cap)
+            if compute_cap >= 8.6:  # Ada Lovelace (RTX 40系列)
+                arch = 'Ada'
+                supports_b_ref = True
+                supports_aq = True
+            elif compute_cap >= 8.0:  # Ampere (RTX 30系列)
+                arch = 'Ampere'
+                supports_b_ref = True
+                supports_aq = True
+            elif compute_cap >= 7.5:  # Turing (RTX 20系列, GTX 16系列)
+                arch = 'Turing'
+                supports_b_ref = True
+                supports_aq = True
+            elif compute_cap >= 6.0:  # Pascal (GTX 10系列)
+                arch = 'Pascal'
+                supports_b_ref = False
+                supports_aq = True
+            else:  # 更老的架构
+                arch = 'Legacy'
+                supports_b_ref = False
+                supports_aq = False
+            
+            logging.info(f"检测到NVIDIA显卡: {gpu_name} (架构: {arch})")
+            return {
+                'arch': arch,
+                'supports_b_ref': supports_b_ref,
+                'supports_aq': supports_aq
+            }
+        except Exception as e:
+            logging.warning(f"检测NVIDIA显卡能力时出错: {str(e)}，将使用基本特性")
+            return {'arch': 'unknown', 'supports_b_ref': False, 'supports_aq': False}
+
     def build_ffmpeg_command(self, codec_params):
         """构建ffmpeg命令
         
@@ -258,16 +319,29 @@ class Video:
             ])
         
         elif codec == 'hevc_nvenc':
+            # 检查显卡能力
+            gpu_caps = self.check_nvidia_capabilities()
+            
             encode_params.extend([
                 '-c:v hevc_nvenc',
                 '-preset %s' % codec_params.get('preset', 'p5'),
                 '-rc vbr',
                 '-qmin %d' % codec_params.get('qmin', 23),
                 '-qmax %d' % codec_params.get('qmin', 23),  # 设置与qmin相同
-                '-rc-lookahead 32',
-                '-b_ref_mode each',
-                '-spatial_aq 1',
-                '-aq-strength 8',
+                '-rc-lookahead 32'
+            ])
+            
+            # 根据显卡能力添加高级特性
+            if gpu_caps['supports_b_ref']:
+                encode_params.append('-b_ref_mode each')
+            
+            if gpu_caps['supports_aq']:
+                encode_params.extend([
+                    '-spatial_aq 1',
+                    '-aq-strength 8'
+                ])
+                
+            encode_params.extend([
                 '-profile:v main',
                 '-level 5.2'
             ])
