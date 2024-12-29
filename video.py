@@ -447,8 +447,28 @@ class Video:
         
         elif codec == 'libx265':
             numa_param = codec_params.get('numa_param')
+            x265_params = []
+            
+            # 如果是VR视频，添加特殊的优化参数
+            if self.is_vr:
+                x265_params.extend([
+                    'aq-mode=2',
+                    'psy-rd=2.5',
+                    'psy-rdoq=1.5',
+                    'rc-lookahead=50',
+                    'qcomp=0.7',
+                    'profile=main',
+                    'level=5.1'
+                ])
+            
+            # 添加NUMA参数（如果有）
             if numa_param:
-                encode_params.append('-x265-params pools="%s"' % numa_param)
+                x265_params.append('pools="%s"' % numa_param)
+            
+            # 组合所有x265参数
+            if x265_params:
+                encode_params.append('-x265-params "%s"' % ':'.join(x265_params))
+                
             encode_params.extend([
                 '-c:v libx265',
                 '-crf %d' % codec_params.get('crf', 22),
