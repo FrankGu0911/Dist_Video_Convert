@@ -113,7 +113,7 @@
         <button
           class="btn-secondary"
           :disabled="!pagination.has_prev"
-          @click="pagination.current_page--"
+          @click="changePage(pagination.current_page - 1)"
         >
           上一页
         </button>
@@ -124,7 +124,7 @@
         <button
           class="btn-secondary"
           :disabled="!pagination.has_next"
-          @click="pagination.current_page++"
+          @click="changePage(pagination.current_page + 1)"
         >
           下一页
         </button>
@@ -223,12 +223,10 @@ const refreshLogs = async () => {
       }
     })
 
-    const response = await apiService.getLogs(params)
-    appStore.logs = response.logs
-    pagination.total = response.total
-    pagination.pages = response.pages
-    pagination.has_next = response.has_next
-    pagination.has_prev = response.has_prev
+    const response = await appStore.fetchLogs(params)
+    if (response?.pagination) {
+      Object.assign(pagination, response.pagination)
+    }
   } catch (error) {
     console.error('Error fetching logs:', error)
   }
@@ -260,15 +258,23 @@ watch(() => filters.order, () => {
   refreshLogs();
 })
 
-watch(() => pagination.per_page, () => {
-  pagination.current_page = 1;
-  refreshLogs();
-})
-
 // 监听页码变化
 watch(() => pagination.current_page, () => {
-  refreshLogs();
+  refreshLogs()
 })
+
+// 监听每页显示数量变化
+watch(() => pagination.per_page, () => {
+  pagination.current_page = 1  // 重置到第一页
+  refreshLogs()
+})
+
+// 添加 changePage 函数
+const changePage = (page) => {
+  if (page >= 1 && page <= pagination.pages) {
+    pagination.current_page = page
+  }
+}
 
 onMounted(async () => {
   await refreshLogs()

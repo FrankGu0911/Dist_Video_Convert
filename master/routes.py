@@ -136,9 +136,20 @@ def create_worker():
 @worker_bp.route('', methods=['GET'])
 def list_workers():
     try:
-        workers = TranscodeWorker.query.all()
+        # 分页参数
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        
         # 检查心跳超时
         current_time = datetime.utcnow()
+        
+        # 构建查询
+        query = TranscodeWorker.query
+        
+        # 执行分页查询
+        pagination = query.paginate(page=page, per_page=per_page)
+        workers = pagination.items
+        
         worker_list = []
         for worker in workers:
             # 如果超过30秒没有心跳，标记为离线
@@ -166,7 +177,17 @@ def list_workers():
         return jsonify({
             'code': 200,
             'message': '获取成功',
-            'data': worker_list
+            'data': {
+                'workers': worker_list,
+                'pagination': {
+                    'total': pagination.total,
+                    'pages': pagination.pages,
+                    'current_page': pagination.page,
+                    'per_page': pagination.per_page,
+                    'has_next': pagination.has_next,
+                    'has_prev': pagination.has_prev
+                }
+            }
         })
     except Exception as e:
         db.session.rollback()

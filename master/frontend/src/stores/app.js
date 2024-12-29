@@ -7,6 +7,7 @@ export const useAppStore = defineStore('app', {
     sidebarOpen: window.innerWidth >= 1024,
     workers: [],
     tasks: [],
+    videos: [],
     logs: []
   }),
   
@@ -33,13 +34,16 @@ export const useAppStore = defineStore('app', {
       }
     },
     
-    async fetchWorkers() {
+    async fetchWorkers(params) {
       try {
-        const data = await api.getWorkers()
-        this.workers = data || []
+        const response = await api.getWorkers(params)
+        if (response?.workers) {
+          this.workers = response.workers
+        }
+        return response
       } catch (error) {
         console.error('Error fetching workers:', error)
-        this.workers = []
+        return null
       }
     },
     
@@ -53,13 +57,17 @@ export const useAppStore = defineStore('app', {
       }
     },
     
-    async fetchLogs() {
+    async fetchLogs(params = {}) {
       try {
-        const data = await api.getLogs()
-        this.logs = data || []
+        const response = await api.getLogs(params)
+        if (response?.logs) {
+          this.logs = response.logs
+        }
+        return response
       } catch (error) {
         console.error('Error fetching logs:', error)
         this.logs = []
+        return null
       }
     },
 

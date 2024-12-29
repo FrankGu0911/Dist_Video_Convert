@@ -62,8 +62,14 @@ api.interceptors.response.use(
 // API 方法封装
 const apiService = {
   // Workers
-  getWorkers() {
-    return api.get('/workers')
+  getWorkers(params = {}) {
+    const queryParams = new URLSearchParams()
+    
+    // 基础参数
+    if (params.page) queryParams.append('page', params.page)
+    if (params.per_page) queryParams.append('per_page', params.per_page)
+    
+    return api.get(`/workers?${queryParams.toString()}`)
   },
 
   // Tasks
