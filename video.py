@@ -168,47 +168,20 @@ class Video:
             duration = -1
             
             def clean_log_line(line):
-                # 移除ANSI转义序列
-                ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-                line = ansi_escape.sub('', line)
-                # 移除控制字符
-                line = ''.join(char for char in line if ord(char) >= 32 or char == '\n')
-                return line.strip()
+                try:
+                    # 移除ANSI转义序列
+                    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+                    line = ansi_escape.sub('', line)
+                    # 移除控制字符
+                    line = ''.join(char for char in line if ord(char) >= 32 or char == '\n')
+                    return line.strip()
+                except Exception as e:
+                    logging.warning(f"清理日志行时出错: {str(e)}")
+                    return ""
             
-            while duration == -1:
-                log = loggingread.readline()
-                if not log:  # 如果读不到内容，短暂等待后继续
-                    time.sleep(0.1)
-                    continue
-                    
-                log = clean_log_line(log)
-                if not log:  # 如果清理后为空��继续下一行
-                    continue
-                    
-                if "Duration:" in log:
-                    try:
-                        # 使用更可靠的方式解析duration
-                        duration_match = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.\d+)', log)
-                        if duration_match:
-                            h, m, s = duration_match.groups()
-                            duration_str = f"{h}:{m}:{s}"
-                            duration = self.GetTimeFromString(duration_str)
-                            duration_ms = self.GetTimeFromString(duration_str, usems=True)
-                            logging.info(f"Duration解析成功: {duration}s ({duration_ms}ms)")
-                        else:
-                            logging.warning(f"无法从行中解析Duration: {log}")
-                            continue
-                    except Exception as e:
-                        logging.error(f"解析Duration时出错: {str(e)}")
-                        logging.error(f"问题行: {log}")
-                        continue
-
-            with tqdm(total=duration_ms, desc="Converting %s" % self.video_name) as pbar:
-                elapsed_time = 0
-                start_time = time.time()
-                last_progress = 0  # 记录上一次的进度，用于检测异常跳变
-                
-                while p.poll() is None:
+            # 尝试获取视频时长
+            try:
+                while duration == -1 and p.poll() is None:
                     log = loggingread.readline()
                     if not log:
                         time.sleep(0.1)
@@ -218,64 +191,104 @@ class Video:
                     if not log:
                         continue
                         
+                    if "Duration:" in log:
+                        try:
+                            duration_match = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.\d+)', log)
+                            if duration_match:
+                                h, m, s = duration_match.groups()
+                                duration_str = f"{h}:{m}:{s}"
+                                duration = self.GetTimeFromString(duration_str)
+                                duration_ms = self.GetTimeFromString(duration_str, usems=True)
+                                logging.info(f"Duration解析成功: {duration}s ({duration_ms}ms)")
+                            else:
+                                logging.warning(f"无法从行中解析Duration: {log}")
+                                continue
+                        except Exception as e:
+                            logging.warning(f"解析Duration时出错: {str(e)}")
+                            continue
+                
+                if duration == -1:
+                    logging.warning("无法获取视频时长，将不显示进度条")
+                    # 如果获取不到时长，就只记录日志
+                    while p.poll() is None:
+                        log = loggingread.readline()
+                        if log:
+                            logging.info(clean_log_line(log))
+                else:
+                    # 显示进度条
                     try:
-                        if "bitrate=" in log:
-                            bitrate_match = re.search(r'bitrate=\s*([\d.]+\s*\w+)', log)
-                            if bitrate_match:
-                                bitrate = bitrate_match.group(1)
-                                pbar.set_postfix_str("Bitrate: %s" % bitrate)
-                                
-                        if "time=" in log:
-                            time_match = re.search(r'time=\s*(\d+):(\d+):(\d+\.\d+)', log)
-                            if time_match:
-                                h, m, s = time_match.groups()
-                                timestr = f"{h}:{m}:{s}"
-                                timems = self.GetTimeFromString(timestr, usems=True)
-                                
-                                # 检查进度是否合理
-                                if timems > duration_ms:
-                                    logging.warning(f"进度超过总时长: {timems} > {duration_ms}")
+                        with tqdm(total=duration_ms, desc="Converting %s" % self.video_name) as pbar:
+                            while p.poll() is None:
+                                try:
+                                    log = loggingread.readline()
+                                    if not log:
+                                        time.sleep(0.1)
+                                        continue
+                                        
+                                    log = clean_log_line(log)
+                                    if not log:
+                                        continue
+                                        
+                                    if "time=" in log:
+                                        try:
+                                            time_match = re.search(r'time=\s*(\d+):(\d+):(\d+\.\d+)', log)
+                                            if time_match:
+                                                h, m, s = time_match.groups()
+                                                timestr = f"{h}:{m}:{s}"
+                                                timems = self.GetTimeFromString(timestr, usems=True)
+                                                if 0 <= timems <= duration_ms:
+                                                    progress = (timems / duration_ms) * 100
+                                                    pbar.update(timems - pbar.n)
+                                                    if progress_callback:
+                                                        try:
+                                                            elapsed_time = pbar.format_dict['elapsed']
+                                                            its = pbar.format_dict['rate']
+                                                            remain = pbar.format_dict['total'] - pbar.format_dict['n']
+                                                            remaining_time = remain/its if its and its > 0 else None
+                                                            progress_callback(progress, elapsed_time, remaining_time)
+                                                        except Exception as e:
+                                                            logging.warning(f"回调进度时出错: {str(e)}")
+                                        except Exception as e:
+                                            logging.warning(f"处理时间信息时出错: {str(e)}")
+                                            continue
+                                            
+                                    if "bitrate=" in log:
+                                        try:
+                                            bitrate_match = re.search(r'bitrate=\s*([\d.]+\s*\w+)', log)
+                                            if bitrate_match:
+                                                bitrate = bitrate_match.group(1)
+                                                pbar.set_postfix_str("Bitrate: %s" % bitrate)
+                                        except Exception as e:
+                                            logging.warning(f"处理比特率信息时出错: {str(e)}")
+                                            continue
+                                except Exception as e:
+                                    logging.warning(f"处理进度信息时出错: {str(e)}")
                                     continue
-                                    
-                                progress_delta = timems - last_progress
-                                if progress_delta < 0 and abs(progress_delta) > duration_ms * 0.1:  # 如果进度回退超过10%
-                                    logging.warning(f"检测到进度异常回退: {progress_delta}ms")
-                                    continue
-                                    
-                                last_progress = timems
-                                pbar.update(timems - pbar.n)
-                                elapsed_time = pbar.format_dict['elapsed']
-                                its = pbar.format_dict['rate']
-                                remain = pbar.format_dict['total'] - pbar.format_dict['n']
-                                
-                                if its is None or its == 0:
-                                    remaining_time = None
-                                else:
-                                    remaining_time = remain/its
-                                progress = (timems / duration_ms) * 100
-                                
+                            
+                            # 确保进度条到达100%
+                            try:
+                                if pbar.n < duration_ms:
+                                    pbar.update(duration_ms - pbar.n)
                                 if progress_callback:
-                                    progress_callback(progress, elapsed_time, remaining_time)
-                                    
+                                    progress_callback(100, pbar.format_dict['elapsed'], 0)
+                            except Exception as e:
+                                logging.warning(f"更新最终进度时出错: {str(e)}")
                     except Exception as e:
-                        logging.error(f"处理进度信息时出错: {str(e)}")
-                        logging.error(f"问题行: {log}")
-                        continue
-
-                # 确保进度条到达100%
-                if pbar.n < duration_ms:
-                    pbar.update(duration_ms - pbar.n)
-                if progress_callback:
-                    progress_callback(100, elapsed_time, 0)
+                        logging.warning(f"显示进度条时出错: {str(e)}")
+                        # 如果进度条显示出错，继续读取输出直到结束
+                        while p.poll() is None:
+                            log = loggingread.readline()
+                            if log:
+                                logging.info(clean_log_line(log))
+            except Exception as e:
+                logging.warning(f"处理ffmpeg输出时出错: {str(e)}")
+                # 确保进程继续运行到结束
+                p.wait()
 
             if p.returncode != 0:
                 raise Exception("Error in ffmpeg")
             
-            # 确保bitrate变量存在
-            bitrate = "unknown"
-            loggingfile.write("============Final Bitrate: %s============\n" % bitrate)
             loggingfile.write("=================%s Done=================\n" % self.video_name)
-
             loggingfile.close()
             loggingread.close()
                         
@@ -283,7 +296,7 @@ class Video:
             logging.error(f"转码过程中出错: {str(e)}")
             p.kill()
             raise e
-        p.wait()
+        
         return p.returncode
 
     def check_output_path(self, output_folder):
@@ -380,7 +393,7 @@ class Video:
         hw_decode = codec_params.get('hw_decode', False)
         ffmpeg_path = codec_params.get('ffmpeg_path', 'ffmpeg')
         
-        # 根据编码器和硬��解码设置选择解码参数
+        # 根据编码器和硬件解码设置选择解码参数
         if hw_decode:
             if codec == 'hevc_nvenc':
                 base_cmd = '%s -y -hwaccel cuda -hwaccel_output_format cuda -i "%s"' % (ffmpeg_path, self.video_path)
