@@ -412,7 +412,9 @@ class Video:
             encode_params.extend([
                 '-c:v hevc_qsv',
                 '-preset %s' % codec_params.get('preset', 'medium'),
-                '-global_quality %d' % codec_params.get('global_quality', 23)
+                '-global_quality %d' % codec_params.get('global_quality', 23),
+                '-look_ahead 1',
+                '-look_ahead_depth 40'
             ])
         
         elif codec == 'hevc_nvenc':
