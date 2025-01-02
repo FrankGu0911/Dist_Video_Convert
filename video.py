@@ -527,7 +527,7 @@ class Video:
         if remove_original:
             os.remove(self.video_path)
 
-    def convert_to_hevc_nvenc(self, qmin=23, preset="p5", rate=30, output_folder=None, remove_original=False, progress_callback=None, hw_decode=False):
+    def convert_to_hevc_nvenc(self, qmin=23, preset="p5", rate='', output_folder=None, remove_original=False, progress_callback=None, hw_decode=False):
         output_path = self.check_output_path(output_folder)
         logging.info("Converting %s to h265 with NVENC (qmin=%s, preset=%s)" % (self.video_name, qmin, preset))
         logging.info("Output file: %s" % output_path)

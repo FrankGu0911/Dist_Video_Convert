@@ -130,12 +130,12 @@ class Worker(BasicWorker):
                 }
             elif self.worker_type == WorkerType.NVENC:
                 codec = 'hevc_nvenc'
-                rate_value = self.rate if self.rate is not None else 30
+                rate_str = str(self.rate) if self.rate is not None else ""
                 codec_params = {
                     'codec': codec,
                     'qmin': self.crf,
                     'preset': self.preset,
-                    'rate': rate_value,
+                    'rate': rate_str,
                     'hw_decode': self.hw_decode,
                     'ffmpeg_path': self.ffmpeg_path
                 }
