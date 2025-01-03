@@ -200,15 +200,19 @@ class BasicWorker:
         if self.worker_type == WorkerType.CPU:
             return 20 if self.support_vr else 22
         elif self.worker_type in [WorkerType.QSV, WorkerType.NVENC]:
-            return 23
+            return 22
+        elif self.worker_type == WorkerType.VPU:
+            return 20  # VPU 默认 CRF 值
         return 22  # 默认值
 
-    def _get_default_preset(self) -> str:
+    def _get_default_preset(self) -> Optional[str]:
         """获取默认的preset值"""
         if self.worker_type == WorkerType.CPU:
             return "slow" if self.support_vr else "medium"
         elif self.worker_type in [WorkerType.QSV, WorkerType.NVENC]:
             return "slow"
+        elif self.worker_type == WorkerType.VPU:
+            return None  # VPU 不使用 preset
         return "medium"  # 默认值
 
     def _get_default_thread(self) -> int:

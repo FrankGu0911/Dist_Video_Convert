@@ -485,6 +485,55 @@ class Video:
                 '-svtav1-params "tune=0:lookahead=120"'
             ])
         
+        elif codec == 'hevc_ni_logan':
+            # VPU编码器参数
+            encode_params.extend([
+                '-c:v h265_ni_logan_enc',
+                '-b:v %d' % codec_params.get('bitrate', 4500000)  # 默认4.5Mbps
+            ])
+            
+            # 构建xcoder-params
+            xcoder_params = [
+                'RcEnable=1',
+                'hvsQPEnable=1',
+                'hvsQpScale=2',
+                'RcInitDelay=3000',
+                'decodingRefreshType=2',
+                'repeatHeaders=1'
+            ]
+            
+            # 如果指定了crf，使用crf模式
+            if 'crf' in codec_params:
+                crf = codec_params['crf']
+                xcoder_params.extend([
+                    f'crf={crf}',
+                    f'minQp={max(1, crf - 2)}',  # crf值减2，但不小于1
+                    f'maxQp={min(51, crf + 2)}'  # crf值加2，但不大于51
+                ])
+            
+            # 添加自定义xcoder参数
+            custom_xcoder_params = codec_params.get('xcoder_params', {})
+            for key, value in custom_xcoder_params.items():
+                xcoder_params.append(f'{key}={value}')
+            
+            encode_params.append('-xcoder-params "%s"' % ':'.join(xcoder_params))
+            
+            # VPU必须启用硬件解码
+            if not codec_params.get('hw_decode', True):
+                logging.warning("VPU编码必须启用硬件解码，已自动启用")
+            
+            # 根据输入视频格式选择解码器
+            input_codec = self.video_codec.lower()
+            if input_codec == 'h264':
+                decoder = 'h264_ni_logan_dec'
+            elif input_codec in ['hevc', 'h265']:
+                decoder = 'h265_ni_logan_dec'
+            else:
+                raise ValueError(f"VPU编码器不支持的输入视频编码格式: {input_codec}，仅支持H.264和HEVC/H.265格式")
+            
+            # 添加解码器参数
+            base_cmd = base_cmd.replace('-i', f'-c:v {decoder} -i')
+        
         # 通用参数
         rate = codec_params.get('rate')
         if rate:
@@ -763,4 +812,42 @@ class Video:
             return self.identi+self.video_extension
         else:
             return self.identi+self.video_extension
+
+    def convert_to_hevc_vpu(self, crf=20, bitrate=4500000, output_folder=None, remove_original=False, progress_callback=None, hw_decode=True, xcoder_params=None):
+        """使用VPU将视频转换为HEVC/H.265格式
+        
+        Args:
+            crf (int): CRF值，控制视频质量，默认20
+            bitrate (int): 目标比特率，单位bps，默认4.5Mbps
+            output_folder (str): 输出文件夹路径，默认为None（使用源文件夹）
+            remove_original (bool): 是否删除原始文件，默认False
+            progress_callback (callable): 进度回调函数，默认None
+            hw_decode (bool): 是否启用硬件解码，默认True（注意：VPU编码必须启用硬件解码，此参数将被忽略）
+            xcoder_params (dict): 额外的xcoder参数，默认None
+        """
+        if not hw_decode:
+            logging.warning("VPU编码必须启用硬件解码，已忽略hw_decode=False设置")
+            hw_decode = True
+            
+        output_path = self.check_output_path(output_folder)
+        logging.info("Converting %s to h265 with VPU (crf=%s, bitrate=%s)" % (self.video_name, crf, bitrate))
+        logging.info("Output file: %s" % output_path)
+        
+        try:
+            cmd = self.build_ffmpeg_command({
+                'codec': 'hevc_ni_logan',
+                'output_path': output_path,
+                'crf': crf,
+                'bitrate': bitrate,
+                'hw_decode': True,  # 强制启用硬件解码
+                'xcoder_params': xcoder_params or {}
+            })
+            logging.info(cmd)
+            self.convert_video_with_progress(cmd, progress_callback)
+        except Exception as e:
+            print(e)
+            raise e
+            
+        if remove_original:
+            os.remove(self.video_path)
 

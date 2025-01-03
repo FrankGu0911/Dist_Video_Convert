@@ -89,6 +89,41 @@ class Worker(BasicWorker):
             logging.warning("继续等待下一个任务...")
             return False
 
+    def _calculate_default_bitrate(self, video: Video, target_fps: Optional[int] = None) -> int:
+        """根据视频分辨率和帧率计算默认比特率
+        
+        Args:
+            video: Video对象
+            target_fps: 目标帧率，如果不指定则使用源视频帧率
+            
+        Returns:
+            int: 建议的比特率（bps）
+        """
+        width, height = video.video_resolution
+        fps = target_fps if target_fps else video.video_fps
+        
+        # 基准：1920x1080@30fps = 3.5Mbps
+        base_bitrate = 4500000  # 3.5Mbps
+        base_pixels = 1920 * 1080
+        base_fps = 30
+        
+        # 计算分辨率比例
+        current_pixels = width * height
+        resolution_ratio = current_pixels / base_pixels
+        
+        # 计算帧率比例
+        fps_ratio = fps / base_fps
+        
+        # 根据分辨率和帧率比例计算比特率
+        # 使用开方来平滑增长
+        bitrate = int(base_bitrate * (resolution_ratio ** 0.7) * (fps_ratio ** 0.5))
+        
+        # 设置最小和最大限制
+        min_bitrate = 2000000  # 1Mbps
+        max_bitrate = 25000000  # 20Mbps
+        
+        return max(min_bitrate, min(bitrate, max_bitrate))
+
     def _process_transcode_task(self, video: Video, task: dict, start_time: float, task_tmp_path: str):
         """处理转码任务"""
         logging.info(f"开始转码任务: {'VR视频' if video.is_vr else '普通视频'}")
@@ -148,6 +183,21 @@ class Worker(BasicWorker):
                     'preset': self.preset,
                     'rate': rate_str,
                     'hw_decode': self.hw_decode,
+                    'ffmpeg_path': self.ffmpeg_path
+                }
+            elif self.worker_type == WorkerType.VPU:
+                codec = 'hevc_ni_logan'
+                rate_str = str(self.rate) if self.rate is not None else ""
+                # 计算默认比特率
+                default_bitrate = self._calculate_default_bitrate(video, int(rate_str) if rate_str else None)
+                logging.info(f"VPU编码器默认比特率: {default_bitrate/1000000:.2f}Mbps (分辨率: {video.video_resolution}, 帧率: {rate_str if rate_str else video.video_fps}fps)")
+                
+                codec_params = {
+                    'codec': codec,
+                    'crf': self.crf,
+                    'bitrate': default_bitrate,
+                    'rate': rate_str,
+                    'hw_decode': True,  # VPU必须启用硬件解码
                     'ffmpeg_path': self.ffmpeg_path
                 }
             else:
