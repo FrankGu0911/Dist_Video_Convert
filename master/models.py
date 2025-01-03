@@ -80,6 +80,7 @@ class TranscodeTask(db.Model):
     error_message = db.Column(db.String(1023), nullable=True)  # 错误信息字段
     elapsed_time = db.Column(db.Integer, default=0)  # 已用时间（秒）
     remaining_time = db.Column(db.Integer, nullable=True)  # 预计剩余时间（秒）
+    last_update_time = db.Column(db.DateTime, nullable=True)  # 最后更新时间
 
 class TranscodeWorker(db.Model):
     __tablename__ = 'transcode_worker'

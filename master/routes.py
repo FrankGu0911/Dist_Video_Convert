@@ -43,17 +43,21 @@ def init_app(app):
 
         @socketio.on('subscribe')
         def handle_subscribe(data):
-            task_id = data.get('task_id')
-            if task_id:
-                join_room(f'task_{task_id}')
-                logger.info(f'Client subscribed to task {task_id}')
+            if 'task_id' in data:
+                join_room(f'task_{data["task_id"]}')
+                logger.info(f'Client subscribed to task {data["task_id"]}')
+            elif 'room' in data and data['room'] == 'tasks_room':
+                join_room('tasks_room')
+                logger.info('Client subscribed to tasks room')
 
         @socketio.on('unsubscribe')
         def handle_unsubscribe(data):
-            task_id = data.get('task_id')
-            if task_id:
-                leave_room(f'task_{task_id}')
-                logger.info(f'Client unsubscribed from task {task_id}')
+            if 'task_id' in data:
+                leave_room(f'task_{data["task_id"]}')
+                logger.info(f'Client unsubscribed from task {data["task_id"]}')
+            elif 'room' in data and data['room'] == 'tasks_room':
+                leave_room('tasks_room')
+                logger.info('Client unsubscribed from tasks room')
 
     # 添加请求日志中间件
     @app.before_request
@@ -274,6 +278,75 @@ def heartbeat():
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e)}), 500
 
+def check_tasks_timeout():
+    """检查任务超时的定时任务"""
+    try:
+        current_time = datetime.utcnow()
+        # 获取所有运行中且最后更新时间超过60秒的任务
+        running_tasks = TranscodeTask.query.filter(
+            TranscodeTask.task_status == 1,  # running
+            TranscodeTask.last_update_time != None,
+            current_time - TranscodeTask.last_update_time > timedelta(seconds=60)
+        ).all()
+        
+        for task in running_tasks:
+            logger.info(f"任务 {task.task_id} 超时，开始处理")
+            # 更新任务状态
+            task.task_status = 3  # failed
+            task.end_time = current_time
+            task.error_message = "任务超过60秒未更新，判定为超时"
+            
+            # 更新视频状态
+            video = VideoInfo.query.get(task.video_id)
+            if video:
+                video.transcode_status = 5  # failed
+                video.transcode_task_id = None
+            
+            # 更新worker状态
+            worker = TranscodeWorker.query.get(task.worker_id)
+            if worker:
+                worker.worker_status = 1  # pending
+                worker.current_task_id = None
+            
+            # 记录错误日志
+            log = TranscodeLog(
+                task_id=task.id,
+                log_level=3,  # error
+                log_message=f"任务 {task.task_id} 超过60秒未更新，判定为超时"
+            )
+            db.session.add(log)
+            
+            # 通过WebSocket发送任务状态更新
+            task_data = {
+                'task_id': task.task_id,
+                'video_path': task.video_path,
+                'dest_path': task.dest_path,
+                'worker_id': task.worker_id,
+                'worker_name': task.worker_name,
+                'progress': task.progress,
+                'status': task.task_status,
+                'error_message': task.error_message,
+                'elapsed_time': task.elapsed_time,
+                'remaining_time': None
+            }
+            
+            # 发送到特定任务的房间
+            socketio.emit('task_update', task_data, room=f'task_{task.task_id}')
+            # 发送到任务列表房间
+            socketio.emit('tasks_update', {
+                'type': 'update',
+                'task': task_data
+            }, room='tasks_room')
+            
+            logger.info(f"任务 {task.task_id} 超时处理完成")
+        
+        if running_tasks:
+            db.session.commit()
+            
+    except Exception as e:
+        logger.error(f"检查任务超时出错: {str(e)}")
+        db.session.rollback()
+
 # Task 相关路由
 @task_bp.route('', methods=['POST'])
 def create_task():
@@ -318,11 +391,13 @@ def create_task():
 
         # 创建新任务
         task_id = str(uuid.uuid4())
+        current_time = datetime.utcnow()
         task = TranscodeTask(
             task_id=task_id,
             worker_id=worker_id,
-            worker_name=worker.worker_name,  # 从worker对象获取worker_name
-            start_time=datetime.utcnow(),
+            worker_name=worker.worker_name,
+            start_time=current_time,
+            last_update_time=current_time,  # 初始化最后更新时间
             video_id=video.id,
             video_path=video.video_path,
             dest_path=dest_path,
@@ -339,6 +414,23 @@ def create_task():
 
         db.session.add(task)
         db.session.commit()
+
+        # 创建新任务成功后，广播到tasks_room
+        task_data = {
+            'task_id': task_id,
+            'video_path': video.video_path,
+            'dest_path': dest_path,
+            'worker_id': worker_id,
+            'worker_name': worker.worker_name,
+            'progress': 0,
+            'status': 1,  # running
+            'elapsed_time': 0,
+            'remaining_time': None
+        }
+        socketio.emit('tasks_update', {
+            'type': 'create',
+            'task': task_data
+        }, room='tasks_room')
 
         return jsonify({
             'code': 201,
@@ -462,6 +554,7 @@ def update_task(task_id):
 
         task.progress = progress
         task.task_status = status
+        task.last_update_time = datetime.utcnow()  # 更新最后更新时间
         if elapsed_time is not None:
             task.elapsed_time = elapsed_time
         if remaining_time is not None:
@@ -502,7 +595,7 @@ def update_task(task_id):
 
         db.session.commit()
 
-        # 通过WebSocket发送任务态更新
+        # 通过WebSocket发送任务状态更新
         task_data = {
             'task_id': task.task_id,
             'video_path': task.video_path,
@@ -515,7 +608,13 @@ def update_task(task_id):
             'elapsed_time': task.elapsed_time,
             'remaining_time': task.remaining_time
         }
+        # 发送到特定任务的房间
         socketio.emit('task_update', task_data, room=f'task_{task_id}')
+        # 发送到任务列表房间
+        socketio.emit('tasks_update', {
+            'type': 'update',
+            'task': task_data
+        }, room='tasks_room')
 
         return jsonify({'code': 200, 'message': '更新成功'})
     except Exception as e:

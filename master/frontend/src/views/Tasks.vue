@@ -447,11 +447,22 @@ watch(() => pagination.current_page, () => {
 
 onMounted(async () => {
   await refreshTasks()
+  
+  // 订阅任务列表更新
+  apiService.subscribeToTasksList()
+  
+  // 监听任务更新事件
   window.addEventListener('task_update', handleTaskUpdate)
+  // 监听任务列表更新事件
+  window.addEventListener('tasks_update', handleTasksUpdate)
 })
 
 onUnmounted(() => {
+  // 取消订阅和事件监听
+  apiService.unsubscribeFromTasksList()
   window.removeEventListener('task_update', handleTaskUpdate)
+  window.removeEventListener('tasks_update', handleTasksUpdate)
+  
   // 取消订阅所有运行中的任务
   if (appStore.tasks) {
     appStore.tasks.forEach(task => {
@@ -461,6 +472,36 @@ onUnmounted(() => {
     })
   }
 })
+
+// 处理任务列表更新
+const handleTasksUpdate = (event) => {
+  const { type, task } = event.detail
+  
+  if (type === 'create') {
+    // 新任务创建，添加到列表开头
+    appStore.tasks = [task, ...appStore.tasks]
+    // 如果是运行中的任务，订阅它的更新
+    if (task.status === 1) {
+      apiService.subscribeToTask(task.task_id)
+    }
+  } else if (type === 'update') {
+    // 更新现有任务
+    const index = appStore.tasks.findIndex(t => t.task_id === task.task_id)
+    if (index !== -1) {
+      const oldTask = appStore.tasks[index]
+      appStore.tasks[index] = { ...oldTask, ...task }
+      
+      // 如果任务状态从其他状态变为运行中，订阅该任务
+      if (oldTask.status !== 1 && task.status === 1) {
+        apiService.subscribeToTask(task.task_id)
+      }
+      // 如果任务状态从运行中变为其他状态，取消订阅
+      else if (oldTask.status === 1 && task.status !== 1) {
+        apiService.unsubscribeFromTask(task.task_id)
+      }
+    }
+  }
+}
 
 const formatProgress = (progress) => {
   if (!progress) return '0'

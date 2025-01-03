@@ -6,6 +6,7 @@ import os
 import logging
 from worker_manager import WorkerManager
 from video_manager import VideoManager
+from task_manager import TaskManager
 from video import Video
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,8 @@ class TaskScheduler:
         self.scheduler = BackgroundScheduler()
         self.worker_manager = WorkerManager()
         self.video_manager = VideoManager(scan_paths)
+        self.task_manager = TaskManager(app)
+        
         # 使用 cron trigger 设置每小时05分执行视频扫描
         self.scheduler.add_job(
             func=self.scan_videos,
@@ -98,6 +101,6 @@ class TaskScheduler:
         with self.app.app_context():
             try:
                 logger.debug("开始检查任务状态...")
-                self.worker_manager.check_tasks_status()
+                self.task_manager.check_tasks_status()
             except Exception as e:
                 logger.error(f"检查任务状态时出错: {str(e)}")

@@ -25,6 +25,11 @@ socket.on('task_update', (data) => {
   window.dispatchEvent(new CustomEvent('task_update', { detail: data }))
 })
 
+// 添加任务列表更新事件监听
+socket.on('tasks_update', (data) => {
+  window.dispatchEvent(new CustomEvent('tasks_update', { detail: data }))
+})
+
 const api = axios.create({
   baseURL: '/api/v1',
   timeout: 10000,
@@ -157,6 +162,15 @@ const apiService = {
 
   unsubscribeFromTask(taskId) {
     socket.emit('unsubscribe', { task_id: taskId })
+  },
+
+  // 添加任务列表订阅方法
+  subscribeToTasksList() {
+    socket.emit('subscribe', { room: 'tasks_room' })
+  },
+
+  unsubscribeFromTasksList() {
+    socket.emit('unsubscribe', { room: 'tasks_room' })
   }
 }
 
