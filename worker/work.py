@@ -300,7 +300,7 @@ if __name__ == "__main__":
     
     # 必需参数
     parser.add_argument('--name', required=True, help='worker名称')
-    parser.add_argument('--type', required=True, choices=['cpu', 'nvenc', 'qsv'], help='worker类型')
+    parser.add_argument('--type', required=True, choices=['cpu', 'nvenc', 'qsv', 'vpu'], help='worker类型')
     parser.add_argument('--master', required=True, help='master服务器地址')
     parser.add_argument('--prefix', required=True, help='视频源文件路径前缀')
     parser.add_argument('--save', required=True, help='视频保存路径，使用!replace表示替换原文件')
@@ -335,7 +335,8 @@ if __name__ == "__main__":
     worker_type_map = {
         'cpu': WorkerType.CPU,
         'nvenc': WorkerType.NVENC,
-        'qsv': WorkerType.QSV
+        'qsv': WorkerType.QSV,
+        'vpu': WorkerType.VPU
     }
     worker_type = worker_type_map[args.type.lower()]
 
