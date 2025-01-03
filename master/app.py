@@ -65,6 +65,7 @@ def create_app():
 
     # 初始化路由和WebSocket
     socketio = init_app(app)
+    app.socketio = socketio  # 将 socketio 实例保存到 app 中
 
     # 处理前端路由
     @app.route('/', defaults={'path': ''})

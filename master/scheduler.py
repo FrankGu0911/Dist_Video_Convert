@@ -18,7 +18,7 @@ class TaskScheduler:
         self.scheduler = BackgroundScheduler()
         self.worker_manager = WorkerManager()
         self.video_manager = VideoManager(scan_paths)
-        self.task_manager = TaskManager(app)
+        self.task_manager = TaskManager(app, app.socketio)
         
         # 使用 cron trigger 设置每小时05分执行视频扫描
         self.scheduler.add_job(
