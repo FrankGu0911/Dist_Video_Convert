@@ -103,7 +103,7 @@ class Worker(BasicWorker):
         fps = target_fps if target_fps else video.video_fps
         
         # 基准：1920x1080@30fps = 3.5Mbps
-        base_bitrate = 4500000  # 3.5Mbps
+        base_bitrate = 3500000  # 3.5Mbps
         base_pixels = 1920 * 1080
         base_fps = 30
         
