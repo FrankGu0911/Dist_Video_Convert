@@ -30,6 +30,10 @@
                   <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">状态</th>
                   <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">类型</th>
                   <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">支持 VR</th>
+                  <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">下线状态</th>
+                  <th scope="col" class="relative py-3.5 pl-3 pr-4 sm:pr-6">
+                    <span class="sr-only">操作</span>
+                  </th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-900">
@@ -41,13 +45,10 @@
                     {{ worker.worker_name }}
                   </td>
                   <td class="whitespace-nowrap px-3 py-4 text-sm">
-                    <span
-                      :class="[
-                        worker.status === 1 ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' :
-                        'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
-                        'inline-flex rounded-full px-2 text-xs font-semibold leading-5'
-                      ]"
-                    >
+                    <span :class="[
+                      worker.status === 1 ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300',
+                      'inline-flex rounded-full px-2 text-xs font-semibold leading-5'
+                    ]">
                       {{ worker.status === 1 ? '在线' : '离线' }}
                     </span>
                   </td>
@@ -56,6 +57,28 @@
                   </td>
                   <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
                     {{ worker.support_vr === 1 ? '支持' : '不支持' }}
+                  </td>
+                  <td class="whitespace-nowrap px-3 py-4 text-sm">
+                    <span v-if="worker.offline_action" 
+                          class="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300 inline-flex rounded-full px-2 text-xs font-semibold leading-5">
+                      {{ worker.offline_action === 'shutdown' ? '即将关机' : '即将下线' }}
+                    </span>
+                    <span v-else class="text-gray-500 dark:text-gray-400">-</span>
+                  </td>
+                  <td class="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                    <button
+                      :class="[
+                        worker.offline_action 
+                          ? 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900 dark:text-green-300 dark:hover:bg-green-800' 
+                          : 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900 dark:text-red-300 dark:hover:bg-red-800',
+                        'rounded-md px-3 py-2 text-sm font-semibold shadow-sm',
+                        worker.status === 0 ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                      ]"
+                      :disabled="worker.status === 0"
+                      @click="worker.offline_action ? handleCancelOffline(worker) : handleOffline(worker)"
+                    >
+                      {{ worker.offline_action ? '恢复节点' : '停止节点' }}
+                    </button>
                   </td>
                 </tr>
               </tbody>
@@ -101,6 +124,42 @@
         </button>
       </div>
     </div>
+
+    <!-- 添加停止节点确认对话框 -->
+    <Dialog :open="showOfflineDialog" @close="showOfflineDialog = false" class="relative z-50">
+      <div class="fixed inset-0 bg-black/30" aria-hidden="true" />
+      <div class="fixed inset-0 flex items-center justify-center p-4">
+        <DialogPanel class="mx-auto max-w-sm rounded bg-white p-6 dark:bg-gray-800">
+          <DialogTitle class="text-lg font-medium leading-6 text-gray-900 dark:text-white">
+            停止节点确认
+          </DialogTitle>
+          <div class="mt-4">
+            <p class="text-sm text-gray-500 dark:text-gray-400">
+              是否需要让 {{ selectedWorker?.worker_name }} 停止服务？
+            </p>
+            <div class="mt-4 flex items-center">
+              <input
+                type="checkbox"
+                id="shutdown"
+                v-model="shouldShutdown"
+                class="h-4 w-4 rounded border-gray-300"
+              />
+              <label for="shutdown" class="ml-2 text-sm text-gray-700 dark:text-gray-300">
+                同时关闭计算机
+              </label>
+            </div>
+          </div>
+          <div class="mt-6 flex justify-end space-x-3">
+            <button class="btn-secondary" @click="showOfflineDialog = false">
+              取消
+            </button>
+            <button class="btn-primary" @click="confirmOffline">
+              确认
+            </button>
+          </div>
+        </DialogPanel>
+      </div>
+    </Dialog>
   </AppLayout>
 </template>
 
@@ -109,6 +168,7 @@ import { ref, onMounted, watch } from 'vue'
 import dayjs from 'dayjs'
 import AppLayout from '../components/Layout/AppLayout.vue'
 import { useAppStore } from '../stores/app'
+import { Dialog, DialogPanel, DialogTitle } from '@headlessui/vue'
 
 const appStore = useAppStore()
 
@@ -154,6 +214,41 @@ const getWorkerType = (type) => {
     3: 'VPU'
   }
   return types[type] || '未知'
+}
+
+const showOfflineDialog = ref(false)
+const selectedWorker = ref(null)
+const shouldShutdown = ref(false)
+
+// 处理停止节点
+const handleOffline = (worker) => {
+  selectedWorker.value = worker
+  shouldShutdown.value = false
+  showOfflineDialog.value = true
+}
+
+// 确认停止节点
+const confirmOffline = async () => {
+  try {
+    await appStore.setWorkerOffline(
+      selectedWorker.value.worker_id, 
+      shouldShutdown.value ? 'shutdown' : 'offline'
+    )
+    showOfflineDialog.value = false
+    await refreshWorkers()
+  } catch (error) {
+    console.error('设置下线失败:', error)
+  }
+}
+
+// 处理恢复节点
+const handleCancelOffline = async (worker) => {
+  try {
+    await appStore.cancelWorkerOffline(worker.worker_id)
+    await refreshWorkers()
+  } catch (error) {
+    console.error('取消下线失败:', error)
+  }
 }
 
 watch(() => filters.status, () => {

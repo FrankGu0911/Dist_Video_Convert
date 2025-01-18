@@ -244,7 +244,8 @@ def list_workers():
                 'worker_name': worker.worker_name,
                 'worker_type': worker.worker_type,
                 'support_vr': worker.support_vr,
-                'status': worker.worker_status
+                'status': worker.worker_status,
+                'offline_action': worker.offline_action
             })
         
         db.session.commit()

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import api from '../api'
+import axios from 'axios'
 
 export const useAppStore = defineStore('app', {
   state: () => ({
@@ -100,6 +101,16 @@ export const useAppStore = defineStore('app', {
         console.error('Error stopping worker:', error)
         throw error
       }
+    },
+
+    async setWorkerOffline(workerId, action) {
+      const response = await axios.post(`/api/v1/workers/${workerId}/offline`, { action })
+      return response.data
+    },
+
+    async cancelWorkerOffline(workerId) {
+      const response = await axios.delete(`/api/v1/workers/${workerId}/offline`)
+      return response.data
     }
   }
 }) 
