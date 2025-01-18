@@ -205,6 +205,7 @@ def list_workers():
             # 如果超过30秒没有心跳，标记为离线
             if worker.last_heartbeat and (current_time - worker.last_heartbeat) > timedelta(seconds=30):
                 worker.worker_status = 0  # 离线
+                worker.offline_action = None  # 清除下线指令
                 # 如果worker有正在执行的任务，将任务标记为失败
                 if worker.current_task_id:
                     task = TranscodeTask.query.get(worker.current_task_id)
@@ -436,6 +437,7 @@ def check_tasks_timeout():
             if worker:
                 worker.worker_status = 1  # pending
                 worker.current_task_id = None
+                worker.offline_action = None  # 清除下线指令
             
             # 记录错误日志
             log = TranscodeLog(
