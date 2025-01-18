@@ -99,31 +99,77 @@ def create_worker():
 
         # 检查worker是否已存在
         worker = TranscodeWorker.query.filter_by(worker_name=worker_name).first()
+        current_time = datetime.utcnow()
+        
         if worker:
-            worker.worker_status = 1  # 在线
-            worker.worker_type = worker_type
-            worker.support_vr = support_vr
-            worker.last_heartbeat = datetime.utcnow()
-            # 清除可能存在的旧任务
-            if worker.current_task_id:
-                task = TranscodeTask.query.get(worker.current_task_id)
-                if task and task.task_status == 1:  # 如果有运行中的任务
-                    task.task_status = 3  # failed
-                    task.end_time = datetime.utcnow()
-                    task.error_message = "Worker重新注册，任务终止"
-                    # 更新视频状态
-                    video = VideoInfo.query.get(task.video_id)
-                    if video:
-                        video.transcode_status = 5  # failed
-                        video.transcode_task_id = None
-            worker.current_task_id = None
+            # 检查worker状态
+            if worker.worker_status == 0:  # 离线状态
+                # 直接更新为在线
+                worker.worker_status = 1
+                worker.worker_type = worker_type
+                worker.support_vr = support_vr
+                worker.last_heartbeat = current_time
+                worker.current_task_id = None
+                worker.offline_action = None
+            else:  # 在线状态
+                # 检查心跳是否超时
+                if worker.last_heartbeat and (current_time - worker.last_heartbeat) > timedelta(seconds=30):
+                    # 心跳超时，认为旧Worker已离线
+                    logger.info(f"Worker {worker_name} 心跳超时，处理旧任务并允许新注册")
+                    
+                    # 处理旧Worker的任务
+                    if worker.current_task_id:
+                        task = TranscodeTask.query.get(worker.current_task_id)
+                        if task and task.task_status == 1:  # 如果有运行中的任务
+                            task.task_status = 3  # failed
+                            task.end_time = current_time
+                            task.error_message = "Worker心跳超时，任务终止"
+                            # 更新视频状态
+                            video = VideoInfo.query.get(task.video_id)
+                            if video:
+                                video.transcode_status = 5  # failed
+                                video.transcode_task_id = None
+                                
+                            # 通过WebSocket发送任务状态更新
+                            task_data = {
+                                'task_id': task.task_id,
+                                'video_path': task.video_path,
+                                'dest_path': task.dest_path,
+                                'worker_id': task.worker_id,
+                                'worker_name': task.worker_name,
+                                'progress': task.progress,
+                                'status': task.task_status,
+                                'error_message': task.error_message,
+                                'elapsed_time': task.elapsed_time,
+                                'remaining_time': None
+                            }
+                            socketio.emit('task_update', task_data, room=f'task_{task.task_id}')
+                            socketio.emit('tasks_update', {
+                                'type': 'update',
+                                'task': task_data
+                            }, room='tasks_room')
+                    
+                    # 更新Worker状态
+                    worker.worker_status = 1  # 在线
+                    worker.worker_type = worker_type
+                    worker.support_vr = support_vr
+                    worker.last_heartbeat = current_time
+                    worker.current_task_id = None
+                    worker.offline_action = None
+                else:
+                    # 心跳正常，拒绝注册
+                    return jsonify({
+                        'code': 409,
+                        'message': f'Worker {worker_name} 已在线，注册失败'
+                    }), 409
         else:
+            # Worker不存在，创建新Worker
             worker = TranscodeWorker(
                 worker_name=worker_name,
                 worker_type=worker_type,
                 support_vr=support_vr,
                 worker_status=1,  # 注册时就设置为在线
-                last_heartbeat=datetime.utcnow()
+                last_heartbeat=current_time
             )
             db.session.add(worker)
         
@@ -165,9 +211,33 @@ def list_workers():
                     if task and task.task_status == 1:  # running
                         task.task_status = 3  # failed
                         task.end_time = current_time
+                        task.error_message = "Worker离线,任务终止"
                         video = VideoInfo.query.get(task.video_id)
                         if video:
                             video.transcode_status = 5  # failed
+                            video.transcode_task_id = None
+                        
+                        # 通过WebSocket发送任务状态更新
+                        task_data = {
+                            'task_id': task.task_id,
+                            'video_path': task.video_path,
+                            'dest_path': task.dest_path,
+                            'worker_id': task.worker_id,
+                            'worker_name': task.worker_name,
+                            'progress': task.progress,
+                            'status': task.task_status,
+                            'error_message': task.error_message,
+                            'elapsed_time': task.elapsed_time,
+                            'remaining_time': None
+                        }
+                        # 发送到特定任务的房间
+                        socketio.emit('task_update', task_data, room=f'task_{task.task_id}')
+                        # 发送到任务列表房间
+                        socketio.emit('tasks_update', {
+                            'type': 'update',
+                            'task': task_data
+                        }, room='tasks_room')
+                worker.current_task_id = None
             
             worker_list.append({
                 'worker_id': worker.id,
@@ -278,6 +348,64 @@ def heartbeat():
         db.session.rollback()
         return jsonify({'code': 500, 'message': str(e)}), 500
 
+@worker_bp.route('/<int:worker_id>/offline', methods=['POST'])
+def set_worker_offline(worker_id):
+    """设置worker下线"""
+    try:
+        data = request.get_json()
+        action = data.get('action')
+        if action not in ['offline', 'shutdown']:
+            return jsonify({
+                'code': 400,
+                'message': '无效的下线动作'
+            })
+            
+        worker = TranscodeWorker.query.get(worker_id)
+        if not worker:
+            return jsonify({
+                'code': 404,
+                'message': 'Worker不存在'
+            })
+            
+        worker.offline_action = action
+        db.session.commit()
+        
+        return jsonify({
+            'code': 200,
+            'message': '下线指令已发送'
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'code': 500,
+            'message': str(e)
+        })
+
+@worker_bp.route('/<int:worker_id>/offline', methods=['DELETE'])
+def cancel_worker_offline(worker_id):
+    """取消worker下线指令"""
+    try:
+        worker = TranscodeWorker.query.get(worker_id)
+        if not worker:
+            return jsonify({
+                'code': 404,
+                'message': 'Worker不存在'
+            })
+            
+        worker.offline_action = None
+        db.session.commit()
+        
+        return jsonify({
+            'code': 200,
+            'message': '下线指令已取消'
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'code': 500,
+            'message': str(e)
+        })
+
 def check_tasks_timeout():
     """检查任务超时的定时任务"""
     try:
@@ -364,6 +492,16 @@ def create_task():
         worker = TranscodeWorker.query.get(worker_id)
         if not worker:
             return jsonify({'code': 404, 'message': 'Worker不存在'}), 404
+            
+        # 检查worker是否有下线指令
+        if worker.offline_action:
+            return jsonify({
+                'code': 205,
+                'message': 'worker should offline',
+                'data': {
+                    'action': worker.offline_action
+                }
+            })
 
         # 查找待转码的视频
         query = VideoInfo.query.filter(
@@ -411,10 +549,11 @@ def create_task():
         video.transcode_task_id = task.id
 
         # 更新worker状态和当前任务
-        worker.current_task_id = task.id
         worker.worker_status = 2  # running
 
         db.session.add(task)
+        db.session.flush()  # 获取 task.id
+        worker.current_task_id = task.id
         db.session.commit()
 
         # 创建新任务成功后，广播到tasks_room

@@ -7,6 +7,7 @@ from typing import Optional
 import os
 from datetime import datetime
 from datetime import time as Time
+import sys
 
 class WorkerType(Enum):
     CPU = 0
@@ -336,6 +337,24 @@ class BasicWorker:
             )
             response.raise_for_status()
             data = response.json()
+            
+            # 处理下线指令
+            if data["code"] == 205:  # 下线指令
+                action = data["data"]["action"]
+                logging.info(f"收到下线指令: {action}")
+                self.stop_heartbeat()
+                self.status = WorkerStatus.OFFLINE
+                
+                if action == "shutdown":
+                    logging.info("执行关机指令...")
+                    if os.name == 'nt':  # Windows
+                        os.system('shutdown /s /t 60')  # 60秒后关机
+                    else:  # Linux/Unix
+                        os.system('shutdown -h +1')  # 1分钟后关机
+                
+                logging.info("服务端指令，Worker即将退出...")
+                sys.exit(0)  # 正常退出，返回0
+                
             if data["code"] in [200, 201]:  # 同时接受200和201状态码
                 self.current_task = data["data"]
                 self.status = WorkerStatus.RUNNING

@@ -17,11 +17,32 @@
 - **响应**:
 ```json
 {
-    "code": "int",               // 状态码
+    "code": "int",               // 状态码: 201-注册成功, 409-Worker已在线
     "message": "string",         // 响应信息
     "data": {
         "worker_id": "int"       // 分配的worker ID
     }
+}
+```
+
+- **注册机制**:
+  1. Worker不存在：直接注册为新Worker
+  2. Worker存在但离线：更新为在线状态，清除旧任务和下线指令
+  3. Worker存在且在线：
+     - 如果心跳超时（30秒）：更新为在线状态，处理旧任务，清除下线指令
+     - 如果心跳正常：拒绝注册，返回409错误
+
+- **错误响应**:
+```json
+{
+    "code": 400,
+    "message": "参数不完整"
+}
+```
+```json
+{
+    "code": 409,
+    "message": "Worker xxx 已在线，注册失败"
 }
 ```
 
@@ -116,6 +137,54 @@
     "message": "string"          // 响应信息
 }
 ```
+
+### 设置 Worker 下线
+- 请求方法：`POST`
+- 请求路径：`/api/v1/workers/{worker_id}/offline`
+- 请求参数：
+  ```json
+  {
+    "action": "offline" // 或 "shutdown"，offline表示仅下线，shutdown表示下线并关机
+  }
+  ```
+- 响应示例：
+  ```json
+  {
+    "code": 200,
+    "message": "下线指令已发送"
+  }
+  ```
+- 错误响应：
+  ```json
+  {
+    "code": 400,
+    "message": "无效的下线动作"
+  }
+  ```
+  ```json
+  {
+    "code": 404,
+    "message": "Worker不存在"
+  }
+  ```
+
+### 取消 Worker 下线
+- 请求方法：`DELETE`
+- 请求路径：`/api/v1/workers/{worker_id}/offline`
+- 响应示例：
+  ```json
+  {
+    "code": 200,
+    "message": "下线指令已取消"
+  }
+  ```
+- 错误响应：
+  ```json
+  {
+    "code": 404,
+    "message": "Worker不存在"
+  }
+  ```
 
 ## 2. 任务资源
 

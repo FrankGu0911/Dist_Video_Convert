@@ -92,6 +92,7 @@ class TranscodeWorker(db.Model):
     support_vr = db.Column(db.Integer, default=0)
     last_heartbeat = db.Column(db.DateTime)
     current_task_id = db.Column(db.Integer)
+    offline_action = db.Column(db.String(10), nullable=True)  # offline或shutdown
 
 class TranscodeLog(db.Model):
     __tablename__ = 'transcode_log'
