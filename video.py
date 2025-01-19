@@ -430,6 +430,13 @@ class Video:
                 '-rc-lookahead 32'
             ])
             
+            # 添加maxrate参数（如果提供）
+            if 'maxrate' in codec_params:
+                encode_params.extend([
+                    '-maxrate %d' % codec_params['maxrate'],
+                    '-bufsize %d' % (codec_params['maxrate'] * 2)  # 设置缓冲区大小为maxrate的2倍
+                ])
+            
             # 根据显卡能力添加高级特性
             if gpu_caps['supports_b_ref']:
                 encode_params.append('-b_ref_mode each')

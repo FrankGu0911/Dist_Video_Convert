@@ -166,13 +166,18 @@ class Worker(BasicWorker):
             elif self.worker_type == WorkerType.NVENC:
                 codec = 'hevc_nvenc'
                 rate_str = str(self.rate) if self.rate is not None else ""
+                # 计算maxrate，设置为原视频码率的70%
+                maxrate = int(video.video_bitrate * 0.7)
+                logging.info(f"NVENC编码器maxrate设置为原视频码率的70%: {maxrate/1000:.2f}kbps")
+                
                 codec_params = {
                     'codec': codec,
                     'qmin': self.crf,
                     'preset': self.preset,
                     'rate': rate_str,
                     'hw_decode': self.hw_decode,
-                    'ffmpeg_path': self.ffmpeg_path
+                    'ffmpeg_path': self.ffmpeg_path,
+                    'maxrate': maxrate  # 添加maxrate参数
                 }
             elif self.worker_type == WorkerType.QSV:
                 codec = 'hevc_qsv'
