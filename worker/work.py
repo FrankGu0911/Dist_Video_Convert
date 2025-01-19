@@ -167,8 +167,8 @@ class Worker(BasicWorker):
                 codec = 'hevc_nvenc'
                 rate_str = str(self.rate) if self.rate is not None else ""
                 # 计算maxrate，设置为原视频码率的70%
-                maxrate = int(video.video_bitrate * 0.75)
-                logging.info(f"NVENC编码器maxrate设置为原视频码率的75%: {maxrate/1000:.2f}kbps")
+                maxrate = int(video.video_bitrate * 0.7)
+                logging.info(f"NVENC编码器maxrate设置为原视频码率的70%: {maxrate/1000:.2f}kbps")
                 
                 codec_params = {
                     'codec': codec,
@@ -194,8 +194,8 @@ class Worker(BasicWorker):
                 codec = 'hevc_ni_logan'
                 rate_str = str(self.rate) if self.rate is not None else ""
                 # 计算目标码率为原视频的75%
-                target_bitrate = int(video.video_bitrate * 0.75)
-                logging.info(f"VPU编码器目标码率设置为原视频码率的75%: {target_bitrate/1000:.2f}kbps")
+                target_bitrate = int(video.video_bitrate * 0.7)
+                logging.info(f"VPU编码器目标码率设置为原视频码率的70%: {target_bitrate/1000:.2f}kbps")
                 
                 codec_params = {
                     'codec': codec,
