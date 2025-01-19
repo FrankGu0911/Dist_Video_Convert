@@ -248,12 +248,19 @@ class Worker(BasicWorker):
             original_bitrate = video.video_bitrate
             new_bitrate = new_video.video_bitrate
             
-            logging.info(f"原始文件码率: {original_bitrate/1000:.2f}kbps")
-            logging.info(f"转码后文件码率: {new_bitrate/1000:.2f}kbps")
+            logging.info(f"原始文件编码: {video.video_codec}, 码率: {original_bitrate/1000:.2f}kbps")
+            logging.info(f"转码后文件编码: {new_video.video_codec}, 码率: {new_bitrate/1000:.2f}kbps")
             
-            # 如果转码后的码率更高，标记为失败
-            if new_bitrate > original_bitrate:
-                error_msg = f"转码后文件码率({new_bitrate/1000:.2f}kbps)高于原始文件({original_bitrate/1000:.2f}kbps)，转码失败"
+            # 根据编码格式确定码率阈值
+            bitrate_threshold = original_bitrate
+            if video.video_codec.lower() == 'h264' and new_video.video_codec.lower() in ['hevc', 'h265']:
+                # H.264 转 H.265，允许码率为原码率的75%
+                bitrate_threshold = original_bitrate * 0.75
+                logging.info(f"H.264转H.265，码率阈值设为原码率的75%: {bitrate_threshold/1000:.2f}kbps")
+            
+            # 如果转码后的码率高于阈值，标记为失败
+            if new_bitrate > bitrate_threshold:
+                error_msg = f"转码后文件码率({new_bitrate/1000:.2f}kbps)高于阈值({bitrate_threshold/1000:.2f}kbps)，转码失败"
                 logging.error(error_msg)
                 
                 # 删除临时文件
