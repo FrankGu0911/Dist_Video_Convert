@@ -167,8 +167,8 @@ class Worker(BasicWorker):
                 codec = 'hevc_nvenc'
                 rate_str = str(self.rate) if self.rate is not None else ""
                 # 计算maxrate，设置为原视频码率的70%
-                maxrate = int(video.video_bitrate * 0.7)
-                logging.info(f"NVENC编码器maxrate设置为原视频码率的70%: {maxrate/1000:.2f}kbps")
+                maxrate = int(video.video_bitrate * 0.75)
+                logging.info(f"NVENC编码器maxrate设置为原视频码率的75%: {maxrate/1000:.2f}kbps")
                 
                 codec_params = {
                     'codec': codec,
@@ -193,14 +193,14 @@ class Worker(BasicWorker):
             elif self.worker_type == WorkerType.VPU:
                 codec = 'hevc_ni_logan'
                 rate_str = str(self.rate) if self.rate is not None else ""
-                # 计算默认比特率
-                default_bitrate = self._calculate_default_bitrate(video, int(rate_str) if rate_str else None)
-                logging.info(f"VPU编码器默认比特率: {default_bitrate/1000000:.2f}Mbps (分辨率: {video.video_resolution}, 帧率: {rate_str if rate_str else video.video_fps}fps)")
+                # 计算目标码率为原视频的75%
+                target_bitrate = int(video.video_bitrate * 0.75)
+                logging.info(f"VPU编码器目标码率设置为原视频码率的75%: {target_bitrate/1000:.2f}kbps")
                 
                 codec_params = {
                     'codec': codec,
                     'crf': self.crf,
-                    'bitrate': default_bitrate,
+                    'bitrate': target_bitrate,
                     'rate': rate_str,
                     'hw_decode': True,  # VPU必须启用硬件解码
                     'ffmpeg_path': self.ffmpeg_path
