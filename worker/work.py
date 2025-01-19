@@ -242,47 +242,94 @@ class Worker(BasicWorker):
             temp_output = self._normalize_path(os.path.join(task_tmp_path, video.video_name))
         logging.info(f"临时文件路径: {temp_output}")
         
-        if self.save_path == "!replace":
-            logging.info("使用替换模式")
-            backup_path = self._normalize_path(video.video_path + ".bak")
-            logging.info(f"备份原文件到: {backup_path}")
-            os.rename(video.video_path, backup_path)
-            logging.info(f"移动新文件到: {video.video_path}")
-            os.rename(temp_output, video.video_path)
-            if self.remove_original:
-                logging.info("删除备份文件")
-                os.remove(backup_path)
-        else:
-            logging.info("使用另存模式")
-            rel_path = os.path.normpath(video.video_path[len(self.prefix_path):])
-            if rel_path.startswith(os.path.sep):
-                rel_path = rel_path[1:]
+        try:
+            # 检查转码后的文件码率
+            new_video = Video(temp_output)
+            original_bitrate = video.video_bitrate
+            new_bitrate = new_video.video_bitrate
+            
+            logging.info(f"原始文件码率: {original_bitrate/1000:.2f}kbps")
+            logging.info(f"转码后文件码率: {new_bitrate/1000:.2f}kbps")
+            
+            # 如果转码后的码率更高，标记为失败
+            if new_bitrate > original_bitrate:
+                error_msg = f"转码后文件码率({new_bitrate/1000:.2f}kbps)高于原始文件({original_bitrate/1000:.2f}kbps)，转码失败"
+                logging.error(error_msg)
                 
-            save_dir = self._normalize_path(os.path.join(self.prefix_path, self.save_path, os.path.dirname(rel_path)))
-            save_path = self._normalize_path(os.path.join(save_dir, video.video_name))
+                # 删除临时文件
+                try:
+                    os.remove(temp_output)
+                    logging.info(f"已删除临时文件: {temp_output}")
+                except Exception as e:
+                    logging.warning(f"删除临时文件失败: {str(e)}")
+                
+                # 更新任务状态为失败
+                self.update_task_status(
+                    task_id=task["task_id"],
+                    status=TaskStatus.FAILED,
+                    progress=100.0,
+                    error_message=error_msg,
+                    elapsed_time=int(time.time() - start_time),
+                    remaining_time=0
+                )
+                return
             
-            logging.info(f"创建目标目录: {save_dir}")
-            os.makedirs(save_dir, exist_ok=True)
-            
-            logging.info(f"移动新文件到: {save_path}")
-            os.rename(temp_output, save_path)
-            if self.remove_original:
-                logging.info(f"删除原文件: {video.video_path}")
-                os.remove(video.video_path)
+            # 码率检查通过，继续处理文件移动
+            if self.save_path == "!replace":
+                logging.info("使用替换模式")
+                backup_path = self._normalize_path(video.video_path + ".bak")
+                logging.info(f"备份原文件到: {backup_path}")
+                os.rename(video.video_path, backup_path)
+                logging.info(f"移动新文件到: {video.video_path}")
+                os.rename(temp_output, video.video_path)
+                if self.remove_original:
+                    logging.info("删除备份文件")
+                    os.remove(backup_path)
+            else:
+                logging.info("使用另存模式")
+                rel_path = os.path.normpath(video.video_path[len(self.prefix_path):])
+                if rel_path.startswith(os.path.sep):
+                    rel_path = rel_path[1:]
+                    
+                save_dir = self._normalize_path(os.path.join(self.prefix_path, self.save_path, os.path.dirname(rel_path)))
+                save_path = self._normalize_path(os.path.join(save_dir, video.video_name))
+                
+                logging.info(f"创建目标目录: {save_dir}")
+                os.makedirs(save_dir, exist_ok=True)
+                
+                logging.info(f"移动新文件到: {save_path}")
+                os.rename(temp_output, save_path)
+                if self.remove_original:
+                    logging.info(f"删除原文件: {video.video_path}")
+                    os.remove(video.video_path)
 
-        # 计算实际总耗时
-        total_elapsed_time = int(time.time() - start_time)
-        logging.info(f"任务总耗时: {total_elapsed_time}秒")
-        
-        # 更新任务状态为完成，使用实际耗时
-        logging.info("更新任务状态为完成")
-        self.update_task_status(
-            task_id=task["task_id"],
-            status=TaskStatus.COMPLETED,
-            progress=100.0,
-            elapsed_time=total_elapsed_time,
-            remaining_time=0
-        )
+            # 计算实际总耗时
+            total_elapsed_time = int(time.time() - start_time)
+            logging.info(f"任务总耗时: {total_elapsed_time}秒")
+            
+            # 更新任务状态为完成，使用实际耗时
+            logging.info("更新任务状态为完成")
+            self.update_task_status(
+                task_id=task["task_id"],
+                status=TaskStatus.COMPLETED,
+                progress=100.0,
+                elapsed_time=total_elapsed_time,
+                remaining_time=0
+            )
+            
+        except Exception as e:
+            error_msg = f"处理转码完成后的操作失败: {str(e)}"
+            logging.error(error_msg)
+            # 更新任务状态为失败
+            self.update_task_status(
+                task_id=task["task_id"],
+                status=TaskStatus.FAILED,
+                progress=100.0,
+                error_message=error_msg,
+                elapsed_time=int(time.time() - start_time),
+                remaining_time=0
+            )
+            raise e
 
 if __name__ == "__main__":
     # 设置日志格式

@@ -508,11 +508,15 @@ def create_task():
 
         # 查找待转码的视频
         query = VideoInfo.query.filter(
-            VideoInfo.transcode_status.in_([1, 5]),  # 等待转码或转码失败
+            # VideoInfo.transcode_status.in_([1, 5]),  # 等待转码或转码失败
             VideoInfo.exist == True  # 文件必须存在
             
         )
-
+        if worker_type == 0 or worker_type == 2:
+            query = query.filter(VideoInfo.transcode_status.in_([1, 5]))
+        # nvenc
+        elif worker_type == 1 or worker_type == 3:
+            query = query.filter(VideoInfo.transcode_status.in_([1]))
         # 根据worker是否支持VR筛选视频
         if support_vr:
             query = query.filter(VideoInfo.is_vr == 1)
