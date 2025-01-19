@@ -69,9 +69,13 @@ class Worker(BasicWorker):
             logging.info("任务状态已更新为运行中")
             
             # 处理任务
-            success = self._process_transcode_task(video, task, start_time, task_tmp_path)
+            result = self._process_transcode_task(video, task, start_time, task_tmp_path)
+            
+            # 如果是码率超标，不计入失败次数
+            if result == "bitrate_exceeded":
+                return True
                 
-            return success
+            return result
                 
         except Exception as e:
             error_msg = f"处理任务失败: {str(e)}"
@@ -225,8 +229,8 @@ class Worker(BasicWorker):
             video.convert_video_with_progress(cmd, progress_callback)
 
             # 转码完成后的处理
-            self._handle_completion(video, task, start_time, task_tmp_path)
-            return True
+            result = self._handle_completion(video, task, start_time, task_tmp_path)
+            return result
             
         except Exception as e:
             raise e
@@ -279,7 +283,7 @@ class Worker(BasicWorker):
                     elapsed_time=int(time.time() - start_time),
                     remaining_time=0
                 )
-                return
+                return "bitrate_exceeded"  # 返回特殊状态表示码率超标
             
             # 码率检查通过，继续处理文件移动
             if self.save_path == "!replace":
@@ -323,6 +327,7 @@ class Worker(BasicWorker):
                 elapsed_time=total_elapsed_time,
                 remaining_time=0
             )
+            return True
             
         except Exception as e:
             error_msg = f"处理转码完成后的操作失败: {str(e)}"
