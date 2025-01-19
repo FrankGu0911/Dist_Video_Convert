@@ -509,8 +509,8 @@ def create_task():
         # 查找待转码的视频
         query = VideoInfo.query.filter(
             VideoInfo.transcode_status.in_([1, 5]),  # 等待转码或转码失败
-            VideoInfo.exist == True,  # 文件必须存在
-            VideoInfo.codec == 'h264'  # 只转码H.264编码的视频
+            VideoInfo.exist == True  # 文件必须存在
+            
         )
 
         # 根据worker是否支持VR筛选视频
@@ -523,6 +523,7 @@ def create_task():
         if worker_type != 0:  # 非CPU类型
             query = query.filter(VideoInfo.resolutionall <= 1920*1080+100)
             query = query.filter(VideoInfo.fps <= 31)
+            query = query.filter(VideoInfo.codec == 'h264')
 
         # 按照码率降序排序
         video = query.order_by(
