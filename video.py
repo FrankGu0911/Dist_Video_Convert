@@ -424,8 +424,8 @@ class Video:
             
             # 获取基础质量参数
             target_quality = codec_params.get('qmin', 23)
-            qmin = max(1, target_quality - 2)  # 确保qmin不小于1
-            qmax = min(51, target_quality + 4)  # 确保qmax不超过51
+            qmin = max(1, target_quality - 3)  # 确保qmin不小于1
+            qmax = min(51, target_quality + 5)  # 确保qmax不超过51
             
             encode_params.extend([
                 '-c:v hevc_nvenc',
