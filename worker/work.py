@@ -248,8 +248,41 @@ class Worker(BasicWorker):
         logging.info(f"临时文件路径: {temp_output}")
         
         try:
-            # 检查转码后的文件码率
+            # 检查转码后的文件
             new_video = Video(temp_output)
+            
+            # 检查视频时长
+            original_duration = video.video_duration
+            new_duration = new_video.video_duration
+            duration_diff = abs(original_duration - new_duration)
+            
+            logging.info(f"原始文件时长: {original_duration:.2f}秒")
+            logging.info(f"转码后文件时长: {new_duration:.2f}秒")
+            logging.info(f"时长差异: {duration_diff:.2f}秒")
+            
+            if duration_diff > 2:
+                error_msg = f"转码后文件时长差异({duration_diff:.2f}秒)超过阈值(2秒)，转码失败"
+                logging.error(error_msg)
+                
+                # 删除临时文件
+                try:
+                    os.remove(temp_output)
+                    logging.info(f"已删除临时文件: {temp_output}")
+                except Exception as e:
+                    logging.warning(f"删除临时文件失败: {str(e)}")
+                
+                # 更新任务状态为失败
+                self.update_task_status(
+                    task_id=task["task_id"],
+                    status=TaskStatus.FAILED,
+                    progress=100.0,
+                    error_message=error_msg,
+                    elapsed_time=int(time.time() - start_time),
+                    remaining_time=0
+                )
+                return
+            
+            # 检查转码后的文件码率
             original_bitrate = video.video_bitrate
             new_bitrate = new_video.video_bitrate
             
