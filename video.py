@@ -161,9 +161,10 @@ class Video:
     def convert_video_with_progress(self, cmd, progress_callback=None): 
         try:
             loggingfile_name = "logs/ffmpeglog-%s-%s.txt" % (self.video_name_noext, time.strftime("%Y-%m-%d-%H-%M", time.localtime()))
-            loggingfile = open(loggingfile_name, "w",encoding='utf-8')
-            loggingfile = open(loggingfile_name, "a+",encoding='utf-8')
-            loggingread = open(loggingfile_name, "r",encoding='utf-8')
+            # 使用 errors='replace' 来处理无法解码的字符
+            loggingfile = open(loggingfile_name, "w", encoding='utf-8', errors='replace')
+            loggingfile = open(loggingfile_name, "a+", encoding='utf-8', errors='replace')
+            loggingread = open(loggingfile_name, "r", encoding='utf-8', errors='replace')
             p = subprocess.Popen(cmd, shell=True, stdout=loggingfile, stderr=loggingfile)
             duration = -1
             
