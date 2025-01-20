@@ -422,12 +422,17 @@ class Video:
             # 检查显卡能力
             gpu_caps = self.check_nvidia_capabilities()
             
+            # 获取基础质量参数
+            target_quality = codec_params.get('qmin', 23)
+            qmin = max(1, target_quality - 2)  # 确保qmin不小于1
+            qmax = min(51, target_quality + 4)  # 确保qmax不超过51
+            
             encode_params.extend([
                 '-c:v hevc_nvenc',
                 '-preset %s' % codec_params.get('preset', 'p5'),
                 '-rc vbr',
-                '-qmin %d' % codec_params.get('qmin', 23),
-                '-qmax %d' % codec_params.get('qmin', 23),  # 设置与qmin相同
+                '-qmin %d' % qmin,
+                '-qmax %d' % qmax,
                 '-rc-lookahead 32'
             ])
             
